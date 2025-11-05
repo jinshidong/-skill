@@ -1,0 +1,73 @@
+<!-- ===== 顶部标题条 ===== -->
+<p style="background-color:#3C3C3C;color:#FFFFFF;font-weight:bold;font-size:20px;line-height:1.6;padding:12px 14px;border-radius:10px 10px 0 0;margin:0;">
+    自动微分中的连续性问题
+  </p>
+  
+  <!-- ===== 主卡片 ===== -->
+  <p style="border:1px solid #D9D9D9;border-top:none;border-radius:0 0 10px 10px;background-color:#FFFFFF;color:#333333;line-height:1.9;padding:14px;margin:0;">
+    <span style="color:#888888;font-size:12px;">日期：2020-05-22　标签：自动微分 / 选择语句 / 连续性问题 / 人工智能</span><br><br>
+  
+    <span style="font-weight:bold;font-size:18px;">如何解决自动微分中选择语句的连续性求导问题</span><br>
+    在理科及工科中，总会遇到数值计算。面对观测方程，进行数据拟合、线性化、积分、非线性优化与梯度下降等，这些过程我们需要<strong>自动微分</strong>。它在非线性优化、扩展卡尔曼滤波、变分同化及机器学习中有极大的用途。<br><br>
+  
+    <span style="font-weight:bold;font-size:18px;">一、微分方法</span><br>
+    <span style="font-weight:bold;">1）解析式求导</span> 最常用也最准确，但手动计算复杂繁重。例：sin'(x)=cos(x)，cos'(x)=-sin(x)。当模型含多参数（如球谐函数）时，人工求偏导工作量很大。一般可用链式法则：∂f/∂vᵢ = Σⱼ( ∂f/∂uⱼ · ∂uⱼ/∂vᵢ )。<br><br>
+  
+    <span style="font-weight:bold;">2）差分近似</span> 前向差分：[f(x+h)-f(x)]/h；后向差分：[f(x)-f(x-h)]/h；中心差分：[f(x+h/2)-f(x-h/2)]/h。步长 h 选择困难：过大精度差，过小截断与数值误差突出。<br><br>
+  
+    <span style="font-weight:bold;">3）链式自动微分</span> 计算函数值的同时得到各参数导数，避免差分对 h 的依赖。但模型中的条件/分段/循环会带来<strong>不连续</strong>，使导数异常，影响反向传播或梯度下降。<br><br>
+  
+    <span style="font-weight:bold;font-size:18px;">二、用平滑选择函数缓解不连续</span><br>
+    ReLU 在阈值处导数不连续。可用 Sigmoid 平滑函数 <span style="font-family:monospace;">S(x,a,u)=1/(1+exp(-(x-a)/u))</span>（u 控制过渡宽度）把“硬切换”变“软过渡”，用于分段函数拼接。<br><br>
+  
+    <span style="display:block;text-align:center;">
+      <img src="http://gnss.ac.cn/images/sigmoid.png" alt="Sigmoid" style="max-width:100%;height:auto;border:1px solid #EAEAEA;">
+    </span><br>
+  
+    线性两段在阈值 a₀ 附近用 S 平滑拼接，可得连续且可导的近似；当两段<strong>非线性差异较大</strong>时，衔接区误差可能增大，需根据精度选择 u。<br><br>
+  
+    <span style="display:block;text-align:center;">
+      <img src="http://gnss.ac.cn/images/tline.png" alt="两段线性平滑" style="max-width:100%;height:auto;border:1px solid #EAEAEA;">
+    </span><br>
+  
+    <span style="display:block;text-align:center;">
+      <img src="http://gnss.ac.cn/images/tnolinear.png" alt="两段非线性平滑" style="max-width:100%;height:auto;border:1px solid #EAEAEA;">
+    </span><br>
+  
+    <span style="font-weight:bold;font-size:18px;">三、代码示例</span><br><br>
+  
+    <!-- ===== 代码块 1 ===== -->
+    <p style="font-family:monospace;background:#F4F4F4;border:1px solid #E0E0E0;border-radius:8px;padding:10px;white-space:pre-line;line-height:1.6;margin:0;">
+  double f(double a)<br>
+  &nbsp;&nbsp;{<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;static double a0 = 5;<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;static double k1 = 0.3;<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;static double k2 = 0.6;<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;return a &gt; a0 ? k1*(a-a0) : k2*(a-a0);<br>
+  &nbsp;&nbsp;}<br>
+    </p><br>
+  
+    <!-- ===== 代码块 2 ===== -->
+    <p style="font-family:monospace;background:#F4F4F4;border:1px solid #E0E0E0;border-radius:8px;padding:10px;white-space:pre-line;line-height:1.6;margin:0;">
+  // autodiff_tnna.h (节选)<br>
+  template&lt;class Cell&gt;<br>
+  struct autodiff{<br>
+  &nbsp;&nbsp;Cell _val;<br>
+  &nbsp;&nbsp;std::valarray&lt;Cell&gt; _dval;<br>
+  &nbsp;&nbsp;autodiff(const Cell&amp; val = Cell(), std::valarray&lt;Cell&gt; dval = {}) : _val(val), _dval(dval){}<br>
+  &nbsp;&nbsp;autodiff&lt;Cell&gt; operator*=(const autodiff&lt;Cell&gt;&amp; a){<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;auto val=_val, dval=_dval;<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;_val = val*a._val;<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;_dval = dval*a._val + val*a._dval;<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;return *this;<br>
+  &nbsp;&nbsp;}<br>
+  &nbsp;&nbsp;// ...<br>
+  };<br>
+    </p><br>
+  
+    <span style="font-weight:bold;font-size:18px;">结论</span><br>
+    在存在条件/分段的不连续场景中，使用 Sigmoid 等平滑函数将“硬切换”变为“软过渡”，配合链式自动微分可获得稳定梯度；过渡参数 u 需结合精度与数值稳定性调节。<br><br>
+  
+    <span style="color:#999999;font-size:12px;">来源：gnss.ac.cn《自动微分中的连续性问题》</span>
+  </p>
+  

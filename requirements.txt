@@ -1,0 +1,15 @@
+# Core dependencies (必需)
+requests>=2.25.0
+
+# Syntax highlighting (可选，但强烈推荐)
+# 用于代码块的语法高亮
+pygments>=2.7.0
+
+# LaTeX formula rendering (可选)
+# 用于本地渲染数学公式（如果 CodeCogs 不可用）
+# 注意：如果只需要 CodeCogs 在线渲染，可以不安装这些
+matplotlib>=3.3.0
+sympy>=1.7.0
+
+# 注意：Mermaid CLI 需要通过 npm 单独安装
+# npm install -g @mermaid-js/mermaid-cli
