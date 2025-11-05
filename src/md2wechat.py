@@ -1824,6 +1824,41 @@ class WeChatHTMLConverter:
         
         return result
     
+    def _convert_list_item_with_bold_colon(self, text: str) -> str:
+        """
+        转换包含加粗文本后跟冒号的列表项
+        只对"加粗文本+冒号"部分应用 white-space: nowrap，描述文本可以正常换行
+        
+        Args:
+            text: 列表项文本（Markdown 格式）
+        
+        Returns:
+            HTML 字符串
+        """
+        # 匹配模式：**加粗文本**：或 **加粗文本**：
+        bold_colon_pattern = r'(\*\*[^*]+\*\*[：:])(.*)'
+        match = re.match(bold_colon_pattern, text)
+        
+        if match:
+            # 分别处理加粗部分和描述部分
+            bold_part = match.group(1)  # **text**：
+            desc_part = match.group(2).strip()  # 描述文本
+            
+            # 转换加粗部分（包含冒号）
+            converted_bold = self._convert_inline_markdown(bold_part)
+            # 对加粗部分应用 white-space: nowrap，确保标题和冒号不分离
+            bold_html = f'<span style="white-space: nowrap;">{converted_bold}</span>'
+            
+            # 转换描述部分（可以正常换行）
+            if desc_part:
+                desc_html = self._convert_inline_markdown(desc_part)
+                return f"{bold_html} {desc_html}"
+            else:
+                return bold_html
+        else:
+            # 不匹配模式，正常转换
+            return self._convert_inline_markdown(text)
+    
     def _convert_list(self, list_structure: List, is_ordered: bool) -> str:
         """
         将列表结构转换为 HTML
@@ -1845,14 +1880,17 @@ class WeChatHTMLConverter:
             if len(item) == 3:
                 # 有嵌套列表
                 text, indent, nested_list = item
-                item_html = f"<li>{self._convert_inline_markdown(text)}"
+                # 使用特殊处理方法来处理加粗文本+冒号的格式
+                converted_text = self._convert_list_item_with_bold_colon(text)
                 nested_html = self._convert_list(nested_list, is_ordered)
-                item_html += nested_html + "</li>"
+                item_html = f"<li>{converted_text}{nested_html}</li>"
                 html_items.append(item_html)
             else:
                 # 普通列表项
                 text, indent = item
-                item_html = f"<li>{self._convert_inline_markdown(text)}</li>"
+                # 使用特殊处理方法来处理加粗文本+冒号的格式
+                converted_text = self._convert_list_item_with_bold_colon(text)
+                item_html = f"<li>{converted_text}</li>"
                 html_items.append(item_html)
         
         list_html = f"<{tag} style=\"margin:10px 0;padding-left:20px;line-height:1.8;\">" + "".join(html_items) + f"</{tag}>"
@@ -1950,14 +1988,73 @@ class WeChatHTMLConverter:
         # 匹配 $...$ 但不匹配 $$...$$
         text = re.sub(r'(?<!\$)\$([^$]+)\$(?!\$)', replace_inline_formula, text)
         
-        # 第二步：转义 HTML 特殊字符
+        # 第二步：处理颜色语法（使用占位符方法，避免被转义）
+        # 支持以下语法：
+        # 1. **文字**{color:#ff0000} - 加粗+颜色
+        # 2. [文字]{color:#ff0000} - 仅颜色
+        # 3. {color:#ff0000}文字{/color} - 标签风格的颜色
+        
+        color_placeholders = {}
+        color_counter = 0
+        
+        def create_color_placeholder(html_content):
+            nonlocal color_counter
+            placeholder = f"__COLOR{color_counter}__"
+            color_placeholders[placeholder] = html_content
+            color_counter += 1
+            return placeholder
+        
+        # 处理加粗+颜色组合：**text**{color:#ff0000}
+        def replace_bold_color(match):
+            content = match.group(1)
+            color = match.group(2)
+            # 验证颜色格式（支持 #rrggbb, rgb(r,g,b), 颜色名称）
+            color_style = self._validate_color(color)
+            if color_style:
+                html = f'<strong><span style="{color_style}">{content}</span></strong>'
+                return create_color_placeholder(html)
+            else:
+                # 如果颜色无效，只保留加粗，不创建占位符
+                return f'**{content}**'
+        
+        text = re.sub(r'\*\*([^*]+)\*\*\{color:([^}]+)\}', replace_bold_color, text)
+        
+        # 处理仅颜色：[text]{color:#ff0000}
+        def replace_color_only(match):
+            content = match.group(1)
+            color = match.group(2)
+            color_style = self._validate_color(color)
+            if color_style:
+                html = f'<span style="{color_style}">{content}</span>'
+                return create_color_placeholder(html)
+            else:
+                # 如果颜色无效，返回原文本
+                return match.group(0)
+        
+        text = re.sub(r'\[([^\]]+)\]\{color:([^}]+)\}', replace_color_only, text)
+        
+        # 处理标签风格的颜色：{color:#ff0000}text{/color}
+        def replace_color_tag(match):
+            content = match.group(2)  # 注意：第二个是内容
+            color = match.group(1)    # 第一个是颜色
+            color_style = self._validate_color(color)
+            if color_style:
+                html = f'<span style="{color_style}">{content}</span>'
+                return create_color_placeholder(html)
+            else:
+                # 如果颜色无效，返回原文本
+                return match.group(0)
+        
+        text = re.sub(r'\{color:([^}]+)\}([^{]+)\{/color\}', replace_color_tag, text)
+        
+        # 第三步：转义 HTML 特殊字符
         # 先转义 &，但要避免转义已生成的 HTML 实体
         text = text.replace("&", "&amp;")
         # 转义 < 和 >
         text = text.replace("<", "&lt;").replace(">", "&gt;")
         
-        # 第三步：处理其他 Markdown 语法
-        # 处理粗体 **text**（双星号，不会与占位符冲突）
+        # 第四步：处理其他 Markdown 语法
+        # 处理粗体 **text**（双星号，不会与占位符冲突，且未被颜色处理匹配）
         text = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', text)
         
         # 处理斜体 *text* 或 _text_
@@ -2017,7 +2114,11 @@ class WeChatHTMLConverter:
         # 再匹配不带标题的
         text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', replace_link, text)
         
-        # 第四步：恢复公式占位符（在转义后恢复，这样公式 HTML 不会被转义）
+        # 第四步：恢复占位符（在转义后恢复，这样 HTML 不会被转义）
+        # 先恢复颜色占位符
+        for placeholder, color_html in color_placeholders.items():
+            text = text.replace(placeholder, color_html)
+        # 再恢复公式占位符
         for placeholder, formula_html in formula_placeholders.items():
             text = text.replace(placeholder, formula_html)
         
@@ -2030,6 +2131,46 @@ class WeChatHTMLConverter:
         text = re.sub(r'  +$', '<br>', text, flags=re.MULTILINE)
         
         return text
+    
+    def _validate_color(self, color: str) -> str:
+        """
+        验证并格式化颜色值
+        
+        Args:
+            color: 颜色值（支持 #rrggbb, rgb(r,g,b), rgba(r,g,b,a), 颜色名称）
+        
+        Returns:
+            格式化的 CSS color 样式字符串，如果无效返回空字符串
+        """
+        color = color.strip()
+        
+        # 检查是否是有效的颜色格式
+        # 支持 #rrggbb 或 #rgb
+        if re.match(r'^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$', color):
+            return f'color:{color};'
+        
+        # 支持 rgb(r, g, b) 或 rgba(r, g, b, a)
+        if re.match(r'^rgba?\([^)]+\)$', color):
+            return f'color:{color};'
+        
+        # 支持常见颜色名称（英文）
+        color_names = {
+            'red', 'green', 'blue', 'yellow', 'orange', 'purple', 'pink',
+            'brown', 'black', 'white', 'gray', 'grey', 'cyan', 'magenta',
+            'lime', 'navy', 'olive', 'teal', 'aqua', 'maroon', 'silver',
+            'gold', 'crimson', 'indigo', 'violet', 'coral', 'salmon',
+            'tomato', 'chocolate', 'khaki', 'plum', 'turquoise'
+        }
+        if color.lower() in color_names:
+            return f'color:{color};'
+        
+        # 如果都不匹配，尝试直接使用（可能是有效的 CSS 颜色值）
+        # 但为了安全，只允许字母、数字、#、括号、逗号、空格、点
+        if re.match(r'^[a-zA-Z0-9#(),.\s-]+$', color) and len(color) <= 50:
+            return f'color:{color};'
+        
+        # 无效颜色，返回空字符串
+        return ''
     
     def _generate_html(self, title: str, date: str, tags: List[str], body: str) -> str:
         """生成完整 HTML"""
