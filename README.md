@@ -25,6 +25,20 @@
 
 详细安装说明请参考 [INSTALL.md](INSTALL.md)
 
+## Markdown 文件格式
+
+MD2WeChat 使用 YAML Front Matter 来定义文章元信息。详细格式说明请参考 [docs/MARKDOWN_FORMAT.md](docs/MARKDOWN_FORMAT.md)。
+
+快速参考：
+- Front Matter 必须用 `---` 包裹
+- 必需字段：`title`、`date`
+- 可选字段：`author`、`excerpt`、`permalink`、`tags`
+- Tags 使用 YAML 列表格式：每行以 `-` 开头（注意缩进）
+
+## 许可证
+
+本项目采用 [MIT License](LICENSE)。
+
 ### 快速安装学术灰风格
 
 ```bash

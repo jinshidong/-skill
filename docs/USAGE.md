@@ -3,6 +3,7 @@
 ## 功能特性
 
 - ✅ 支持 Markdown Front Matter（YAML 格式）解析
+  - 详细格式说明请参考 [MARKDOWN_FORMAT.md](MARKDOWN_FORMAT.md)
 - ✅ 代码块缩进准确识别（使用 `<br>` + `&nbsp;` 方法）
 - ✅ 图片自动转换为 base64 嵌入（支持本地路径和网络URL）
 - ✅ 多种主题风格（学术灰、节日、科技、公告）

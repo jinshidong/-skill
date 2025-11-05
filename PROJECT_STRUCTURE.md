@@ -4,8 +4,10 @@
 MD2WeChat/
 ├── md2wechat.py              # 命令行入口脚本
 ├── requirements.txt           # Python 依赖列表
+├── LICENSE                    # MIT 许可证
 ├── README.md                  # 项目主文档
 ├── INSTALL.md                 # 详细安装指南
+├── PROJECT_STRUCTURE.md      # 项目结构说明
 ├── .gitignore                 # Git 忽略文件
 │
 ├── src/                       # 源代码目录
@@ -15,6 +17,7 @@ MD2WeChat/
 │
 ├── docs/                      # 文档目录
 │   ├── USAGE.md               # 使用文档
+│   ├── MARKDOWN_FORMAT.md     # Markdown 文件格式说明（Front Matter 格式）
 │   └── type.md                # 微信支持的 HTML 标签说明
 │
 ├── examples/                  # 示例文件
@@ -33,8 +36,10 @@ MD2WeChat/
 
 - **md2wechat.py**: 命令行入口，提供命令行界面
 - **requirements.txt**: Python 包依赖列表
+- **LICENSE**: MIT 许可证文件
 - **README.md**: 项目概述和快速开始指南
 - **INSTALL.md**: 详细的安装说明和依赖说明
+- **PROJECT_STRUCTURE.md**: 项目结构说明文档
 - **.gitignore**: Git 版本控制忽略规则
 
 ### src/ 目录
@@ -65,6 +70,7 @@ MD2WeChat/
 文档文件：
 
 - **USAGE.md**: 详细的使用说明和示例
+- **MARKDOWN_FORMAT.md**: Markdown 文件格式说明，特别是 Front Matter（前置元数据）和 tags 格式
 - **type.md**: 微信支持的 HTML 标签和样式列表
 
 ### examples/ 目录
