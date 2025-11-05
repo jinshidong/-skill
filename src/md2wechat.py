@@ -720,9 +720,18 @@ class MermaidProcessor:
             with open(mermaid_file, 'w', encoding='utf-8') as f:
                 f.write(mermaid_code)
             
+            # 检查是否需要设置宽高比（检测 graph LR 横向布局，通常需要更宽的图片）
+            # 如果包含 "graph LR" 且包含 style 配置，可能是需要特定宽高比的总结图
+            mmdc_args = ['mmdc', '-i', str(mermaid_file), '-o', str(png_file), '-b', 'transparent']
+            
+            # 检测是否为横向布局的总结图（通常需要 2.35:1 宽高比）
+            if 'graph LR' in mermaid_code and 'style' in mermaid_code:
+                # 设置宽高比为 2.35:1，例如宽度 2350px，高度 1000px
+                mmdc_args.extend(['-w', '2350', '-H', '1000'])
+            
             # 使用 mmdc 转换为 PNG（使用透明背景）
             result = subprocess.run(
-                ['mmdc', '-i', str(mermaid_file), '-o', str(png_file), '-b', 'transparent'],
+                mmdc_args,
                 capture_output=True,
                 text=True,
                 timeout=30
