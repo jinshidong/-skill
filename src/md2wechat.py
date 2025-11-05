@@ -1536,18 +1536,8 @@ class WeChatHTMLConverter:
                     card_content.append(self.image_processor.process_image(src, alt, title))
                     has_real_content = True
                 elif item_type == "formula":
-                    # 公式可能包含<p>标签，需要移除以避免嵌套
+                    # 块级公式已经包含米黄色背景和正确的<div>标签，直接使用
                     formula_html = self.formula_processor.format_block_formula(item_data[0])
-                    # 移除公式中的<p>标签，改为<div>或直接使用内容
-                    import re
-                    # 移除外层的<p>和<br>标签
-                    formula_html = re.sub(r'^<p[^>]*>', '', formula_html, flags=re.DOTALL)
-                    formula_html = re.sub(r'</p><br>$', '', formula_html, flags=re.DOTALL)
-                    # 用<div>包裹公式图片，保持居中
-                    data_url_match = re.search(r'src="([^"]+)"', formula_html)
-                    if data_url_match:
-                        data_url = data_url_match.group(1)
-                        formula_html = f'<div style="text-align:center;margin:10px 0;"><img src="{data_url}" style="width:auto;max-width:90%;"></div>'
                     card_content.append(formula_html)
                     has_real_content = True
                 elif item_type == "mermaid":
@@ -1628,11 +1618,33 @@ class WeChatHTMLConverter:
         if not text.strip():
             return ""
         
-        # 转换内联 Markdown
-        html_text = self._convert_inline_markdown(text)
+        # 处理空行：将文本按行分割
+        lines = text.split('\n')
+        html_lines = []
+        prev_line_empty = False
         
-        # 添加段落结束标记
-        return f"{html_text}<br><br>"
+        for i, line in enumerate(lines):
+            if line.strip():
+                # 非空行：转换内联 Markdown
+                html_lines.append(self._convert_inline_markdown(line))
+                prev_line_empty = False
+            else:
+                # 空行：如果前一行不是空行，添加一个 <br>（避免连续空行产生多个换行）
+                if not prev_line_empty and i > 0:
+                    html_lines.append('<br>')
+                prev_line_empty = True
+        
+        # 合并所有行
+        html_text = ''.join(html_lines)
+        
+        # 检查段落是否以空行结尾
+        # 如果最后一行是空行，已经添加了 <br>，不需要再添加
+        # 如果最后一行不是空行，添加一个 <br> 作为段落结束
+        if lines and lines[-1].strip():
+            return f"{html_text}<br>"
+        else:
+            # 段落以空行结尾，空行已经产生了 <br>，不再添加额外的 <br>
+            return html_text
     
     def _convert_horizontal_rule(self) -> str:
         """转换水平分割线"""
