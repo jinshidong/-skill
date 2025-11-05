@@ -434,10 +434,7 @@ graph LR
 ---
 
 **作者**：Mapoet  
-
 **项目地址**：[https://github.com/Mapoet/MD2WeChat](https://github.com/Mapoet/MD2WeChat)  
-
 **许可证**：MIT License  
-
 **贡献**：欢迎提交 Issue 和 Pull Request
 

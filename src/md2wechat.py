@@ -1745,6 +1745,10 @@ class WeChatHTMLConverter:
         # 使用负向前瞻，确保不匹配已恢复的公式 HTML
         text = re.sub(r'__(?!FORMULA\d+__)([^_]+)__', r'<strong>\1</strong>', text)
         
+        # 第六步：处理行尾两个空格（Markdown 硬换行）
+        # 将行尾的两个或更多空格转换为 <br>
+        text = re.sub(r'  +$', '<br>', text, flags=re.MULTILINE)
+        
         return text
     
     def _generate_html(self, title: str, date: str, tags: List[str], body: str) -> str:
