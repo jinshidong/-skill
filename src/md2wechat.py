@@ -237,13 +237,14 @@ class CodeBlockFormatter:
         """
         self.style_config = style_config
     
-    def format_code_block(self, code: str, language: str = "") -> str:
+    def format_code_block(self, code: str, language: str = "", show_line_numbers: bool = True) -> str:
         """
         将代码块转换为微信公众号兼容格式
         
         Args:
             code: 代码内容
             language: 语言标识（可选）
+            show_line_numbers: 是否显示行号（默认 True）
         
         Returns:
             格式化后的 HTML
@@ -251,6 +252,10 @@ class CodeBlockFormatter:
         lines = code.rstrip().split("\n")
         if not lines:
             return ""
+        
+        # 计算行号宽度（用于对齐）
+        total_lines = len(lines)
+        line_number_width = len(str(total_lines))  # 行号数字的位数
         
         # 计算最小缩进（忽略空行）
         min_indent = float('inf')
@@ -296,7 +301,7 @@ class CodeBlockFormatter:
                     highlighted_code = highlight(code, lexer, formatter)
                     # highlighted_code 已经是 HTML，包含内联样式
                     # 但需要处理缩进（Pygments 不保留缩进）
-                    code_html = CodeBlockFormatter._apply_indentation_to_highlighted(highlighted_code, lines, min_indent)
+                    code_html = self._apply_indentation_to_highlighted(highlighted_code, lines, min_indent)
                 except (ImportError, Exception) as e:
                     # 如果导入失败或高亮失败，使用原来的方法
                     print(f"Warning: Syntax highlighting failed: {e}")
@@ -311,6 +316,10 @@ class CodeBlockFormatter:
             # 如果高亮失败，回退到原来的方法
             print(f"Warning: Syntax highlighting failed for {language}: {e}")
             code_html = self._format_plain_code(code, lines, min_indent)
+        
+        # 如果启用行号，需要重新格式化代码以包含行号
+        if show_line_numbers:
+            code_html = self._add_line_numbers(code_html, lines, line_number_width)
         
         # 代码块样式：支持横向滚动，使用主题配置的颜色
         code_bg_color = self.style_config.code_bg_color if self.style_config else "#F4F4F4"
@@ -354,8 +363,7 @@ class CodeBlockFormatter:
         
         return "".join(formatted_lines)
     
-    @staticmethod
-    def _apply_indentation_to_highlighted(highlighted_html: str, original_lines: List[str], min_indent: int) -> str:
+    def _apply_indentation_to_highlighted(self, highlighted_html: str, original_lines: List[str], min_indent: int) -> str:
         """为已高亮的 HTML 代码添加缩进"""
         # 将高亮的 HTML 按 <br> 分割成行
         parts = highlighted_html.split('<br>')
@@ -396,22 +404,95 @@ class CodeBlockFormatter:
                 formatted_parts.append('<br>')
         
         return "".join(formatted_parts)
+    
+    def _add_line_numbers(self, code_html: str, original_lines: List[str], line_number_width: int) -> str:
+        """为代码 HTML 添加行号"""
+        # 行号宽度：根据总行数计算，最小宽度为 2em（适用于1-9行），每增加一位数增加约 0.6em
+        # 例如：1-9行：2em, 10-99行：2.6em, 100-999行：3.2em
+        if line_number_width <= 1:
+            width = "2em"
+        else:
+            width = f"{1.4 + (line_number_width - 1) * 0.6}em"
+        
+        # 行号样式：灰色、右对齐、固定宽度，不可选择
+        line_number_style = f"display:inline-block;width:{width};text-align:right;padding-right:0.8em;color:#999;user-select:none;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;"
+        
+        # 将代码 HTML 按 <br> 分割成行
+        code_lines = code_html.split('<br>')
+        
+        # 确保行数匹配（处理最后可能没有 <br> 的情况）
+        # 移除最后一个空元素（如果有）
+        if code_lines and code_lines[-1] == '':
+            code_lines = code_lines[:-1]
+        
+        # 确保行数不超过原始行数
+        if len(code_lines) > len(original_lines):
+            code_lines = code_lines[:len(original_lines)]
+        
+        # 为每一行添加行号
+        lines_with_numbers = []
+        for idx, code_line in enumerate(code_lines):
+            line_num = idx + 1
+            # 添加行号（每行开头）
+            line_number_html = f'<span style="{line_number_style}">{line_num}</span>'
+            lines_with_numbers.append(f"{line_number_html}{code_line}<br>")
+        
+        return "".join(lines_with_numbers)
 
 
 class FormulaProcessor:
     """数学公式处理器 - 本地渲染为图片并转为 base64"""
     
-    def __init__(self, temp_dir: Optional[str] = None, cleanup: bool = True):
+    def __init__(self, temp_dir: Optional[str] = None, cleanup: bool = True, style_config: Optional[StyleConfig] = None):
         """
         Args:
             temp_dir: 临时文件目录（默认：系统临时目录）
             cleanup: 是否在转换完成后清理临时文件
+            style_config: 样式配置（用于适配主题背景色）
         """
         import tempfile
         self.temp_dir = Path(temp_dir) if temp_dir else Path(tempfile.gettempdir()) / "md2wechat_formulas"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         self.cleanup = cleanup
         self.temp_files = []  # 记录临时文件，用于清理
+        self.style_config = style_config
+    
+    @staticmethod
+    def _is_light_color(color: str) -> bool:
+        """
+        判断颜色是否为亮色
+        
+        Args:
+            color: 颜色字符串（支持 #RRGGBB, rgb(r,g,b), rgba(r,g,b,a) 格式）
+        
+        Returns:
+            True 如果为亮色，False 如果为暗色
+        """
+        import re
+        
+        # 解析颜色值
+        r, g, b = 255, 255, 255  # 默认白色
+        
+        # 处理 #RRGGBB 格式
+        hex_match = re.match(r'^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$', color)
+        if hex_match:
+            r = int(hex_match.group(1), 16)
+            g = int(hex_match.group(2), 16)
+            b = int(hex_match.group(3), 16)
+        else:
+            # 处理 rgba(r, g, b, a) 或 rgb(r, g, b) 格式
+            rgba_match = re.match(r'rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)', color)
+            if rgba_match:
+                r = int(rgba_match.group(1))
+                g = int(rgba_match.group(2))
+                b = int(rgba_match.group(3))
+        
+        # 计算亮度（使用相对亮度公式）
+        # Y = 0.299*R + 0.587*G + 0.114*B
+        brightness = 0.299 * r + 0.587 * g + 0.114 * b
+        
+        # 如果亮度大于 128，认为是亮色
+        return brightness > 128
     
     @staticmethod
     def _convert_cases_to_array(latex: str) -> str:
@@ -544,15 +625,39 @@ class FormulaProcessor:
         plt.rcParams['mathtext.fontset'] = 'dejavusans'
         plt.rcParams['font.family'] = 'sans-serif'
         
+        # 根据主题背景色决定图形背景色
+        # 为了确保公式在任何背景下都清晰可见，默认使用白色背景
+        # 只有在背景是纯白色或非常接近白色时才使用透明背景
+        figure_bg_color = 'white'  # 默认白色，确保对比度
+        transparent = False
+        if self.style_config:
+            card_bg = self.style_config.card_bg_color
+            # 如果背景是纯白色或非常接近白色，可以使用透明背景
+            if self._is_light_color(card_bg):
+                import re
+                hex_match = re.match(r'^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$', card_bg)
+                if hex_match:
+                    r = int(hex_match.group(1), 16)
+                    g = int(hex_match.group(2), 16)
+                    b = int(hex_match.group(3), 16)
+                    # 如果所有颜色分量都大于 240（接近白色），可以使用透明背景
+                    if r > 240 and g > 240 and b > 240:
+                        figure_bg_color = 'none'
+                        transparent = True
+                elif card_bg.lower() in ['#ffffff', '#fff', 'white', 'rgb(255,255,255)']:
+                    figure_bg_color = 'none'
+                    transparent = True
+        
         # 创建图形（行内公式使用更小的尺寸）
         if is_inline:
             # 行内公式：使用非常小的图形，只包含公式内容
-            fig, ax = plt.subplots(figsize=(6, 0.4))
+            fig, ax = plt.subplots(figsize=(6, 0.4), facecolor=figure_bg_color)
         else:
             # 块级公式：使用较大的图形
-            fig, ax = plt.subplots(figsize=(10, 1.5))
+            fig, ax = plt.subplots(figsize=(10, 1.5), facecolor=figure_bg_color)
         
         ax.axis('off')
+        ax.set_facecolor(figure_bg_color if figure_bg_color != 'none' else 'white')
         
         # 渲染公式
         fontsize = 12 if is_inline else 18
@@ -567,11 +672,12 @@ class FormulaProcessor:
                 fontsize=fontsize, ha='center', va='center',
                 transform=ax.transAxes, usetex=False)
         
-        # 保存到内存缓冲区（使用透明背景）
+        # 保存到内存缓冲区
         buf = BytesIO()
         plt.savefig(buf, format='png', dpi=150 if is_inline else 200, 
                    bbox_inches='tight', pad_inches=0.05 if is_inline else 0.1,
-                   facecolor='none', transparent=True)
+                   facecolor=figure_bg_color if figure_bg_color != 'none' else 'white',
+                   transparent=transparent)
         plt.close(fig)
         
         # 转换为 base64
@@ -603,15 +709,30 @@ class FormulaProcessor:
         logging.getLogger('matplotlib').setLevel(logging.ERROR)
         logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
         
+        # 根据主题背景色决定图形背景色
+        figure_bg_color = 'white'  # 默认白色，确保对比度
+        transparent = False
+        if self.style_config:
+            card_bg = self.style_config.card_bg_color
+            # 如果背景是浅色（接近白色），可以使用透明背景
+            if self._is_light_color(card_bg) and card_bg.lower() in ['#ffffff', '#fff', 'white', 'rgb(255,255,255)']:
+                figure_bg_color = 'none'
+                transparent = True
+            else:
+                # 对于其他颜色背景，使用白色背景确保公式可见
+                figure_bg_color = 'white'
+                transparent = False
+        
         # 创建图形（行内公式使用更小的尺寸）
         if is_inline:
             # 行内公式：使用非常小的图形，只包含公式内容
-            fig, ax = plt.subplots(figsize=(6, 0.4))
+            fig, ax = plt.subplots(figsize=(6, 0.4), facecolor=figure_bg_color)
         else:
             # 块级公式：使用较大的图形
-            fig, ax = plt.subplots(figsize=(10, 1.5))
+            fig, ax = plt.subplots(figsize=(10, 1.5), facecolor=figure_bg_color)
         
         ax.axis('off')
+        ax.set_facecolor(figure_bg_color if figure_bg_color != 'none' else 'white')
         
         # 渲染公式（行内公式使用更小的字体）
         fontsize = 12 if is_inline else 18
@@ -627,11 +748,12 @@ class FormulaProcessor:
                 fontsize=fontsize, ha='center', va='center',
                 transform=ax.transAxes, usetex=False)  # 使用 matplotlib 的数学文本渲染
         
-        # 保存到内存缓冲区（使用透明背景，行内公式使用更小的 padding）
+        # 保存到内存缓冲区
         buf = BytesIO()
         plt.savefig(buf, format='png', dpi=150 if is_inline else 200, 
                    bbox_inches='tight', pad_inches=0.05 if is_inline else 0.1,
-                   facecolor='none', transparent=True)
+                   facecolor=figure_bg_color if figure_bg_color != 'none' else 'white',
+                   transparent=transparent)
         plt.close(fig)
         
         # 转换为 base64
@@ -673,10 +795,35 @@ class FormulaProcessor:
         # 设置 DPI（行内公式使用较小 DPI，块级公式使用较大 DPI）
         dpi = 150 if not is_inline else 120
         
-        # 构建 CodeCogs URL（使用透明背景）
+        # 根据主题背景色决定是否使用白色背景
+        # 为了确保公式在任何背景下都清晰可见，默认使用白色背景
+        # 只有在背景是纯白色或非常接近白色时才使用透明背景
+        use_white_bg = True  # 默认使用白色背景，确保对比度
+        if self.style_config:
+            # 检查卡片背景色（公式通常显示在卡片中）
+            card_bg = self.style_config.card_bg_color
+            # 如果背景是纯白色或非常接近白色，可以使用透明背景
+            if self._is_light_color(card_bg):
+                # 检查是否接近纯白色（RGB 值都大于 240）
+                import re
+                hex_match = re.match(r'^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$', card_bg)
+                if hex_match:
+                    r = int(hex_match.group(1), 16)
+                    g = int(hex_match.group(2), 16)
+                    b = int(hex_match.group(3), 16)
+                    # 如果所有颜色分量都大于 240（接近白色），可以使用透明背景
+                    if r > 240 and g > 240 and b > 240:
+                        use_white_bg = False
+                elif card_bg.lower() in ['#ffffff', '#fff', 'white', 'rgb(255,255,255)']:
+                    use_white_bg = False
+        
+        # 构建 CodeCogs URL
         # CodeCogs URL 格式：整个查询参数需要进行 URL 编码
-        # 移除 \bg_white 以使用透明背景
-        query_part = f"\\dpi{{{dpi}}} {latex}"
+        if use_white_bg:
+            query_part = f"\\dpi{{{dpi}}}\\bg_white {latex}"
+        else:
+            # 使用透明背景（对于亮色主题）
+            query_part = f"\\dpi{{{dpi}}} {latex}"
         encoded_query = quote(query_part, safe='')
         url = f"https://latex.codecogs.com/png.image?{encoded_query}"
         
@@ -782,17 +929,56 @@ class FormulaProcessor:
 class MermaidProcessor:
     """Mermaid 图处理器 - 使用 mmdc 转换为 PNG 并转为 base64"""
     
-    def __init__(self, temp_dir: Optional[str] = None, cleanup: bool = True):
+    def __init__(self, temp_dir: Optional[str] = None, cleanup: bool = True, style_config: Optional[StyleConfig] = None):
         """
         Args:
             temp_dir: 临时文件目录（默认：系统临时目录）
             cleanup: 是否在转换完成后清理临时文件
+            style_config: 样式配置（用于适配主题背景色）
         """
         import tempfile
         self.temp_dir = Path(temp_dir) if temp_dir else Path(tempfile.gettempdir()) / "md2wechat_mermaid"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         self.cleanup = cleanup
         self.temp_files = []  # 记录临时文件，用于清理
+        self.style_config = style_config
+    
+    @staticmethod
+    def _is_light_color(color: str) -> bool:
+        """
+        判断颜色是否为亮色
+        
+        Args:
+            color: 颜色字符串（支持 #RRGGBB, rgb(r,g,b), rgba(r,g,b,a) 格式）
+        
+        Returns:
+            True 如果为亮色，False 如果为暗色
+        """
+        import re
+        
+        # 解析颜色值
+        r, g, b = 255, 255, 255  # 默认白色
+        
+        # 处理 #RRGGBB 格式
+        hex_match = re.match(r'^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$', color)
+        if hex_match:
+            r = int(hex_match.group(1), 16)
+            g = int(hex_match.group(2), 16)
+            b = int(hex_match.group(3), 16)
+        else:
+            # 处理 rgba(r, g, b, a) 或 rgb(r, g, b) 格式
+            rgba_match = re.match(r'rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)', color)
+            if rgba_match:
+                r = int(rgba_match.group(1))
+                g = int(rgba_match.group(2))
+                b = int(rgba_match.group(3))
+        
+        # 计算亮度（使用相对亮度公式）
+        # Y = 0.299*R + 0.587*G + 0.114*B
+        brightness = 0.299 * r + 0.587 * g + 0.114 * b
+        
+        # 如果亮度大于 128，认为是亮色
+        return brightness > 128
     
     def convert_mermaid_to_png_base64(self, mermaid_code: str) -> str:
         """
@@ -817,16 +1003,36 @@ class MermaidProcessor:
             with open(mermaid_file, 'w', encoding='utf-8') as f:
                 f.write(mermaid_code)
             
+            # 根据主题背景色决定 Mermaid 背景色
+            # 为了确保图表在任何背景下都清晰可见，默认使用白色背景
+            # 只有在背景是纯白色或非常接近白色时才使用透明背景
+            mermaid_bg = 'white'  # 默认白色，确保对比度
+            if self.style_config:
+                card_bg = self.style_config.card_bg_color
+                # 如果背景是纯白色或非常接近白色，可以使用透明背景
+                if self._is_light_color(card_bg):
+                    import re
+                    hex_match = re.match(r'^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$', card_bg)
+                    if hex_match:
+                        r = int(hex_match.group(1), 16)
+                        g = int(hex_match.group(2), 16)
+                        b = int(hex_match.group(3), 16)
+                        # 如果所有颜色分量都大于 240（接近白色），可以使用透明背景
+                        if r > 240 and g > 240 and b > 240:
+                            mermaid_bg = 'transparent'
+                    elif card_bg.lower() in ['#ffffff', '#fff', 'white', 'rgb(255,255,255)']:
+                        mermaid_bg = 'transparent'
+            
             # 检查是否需要设置宽高比（检测 graph LR 横向布局，通常需要更宽的图片）
             # 如果包含 "graph LR" 且包含 style 配置，可能是需要特定宽高比的总结图
-            mmdc_args = ['mmdc', '-i', str(mermaid_file), '-o', str(png_file), '-b', 'transparent']
+            mmdc_args = ['mmdc', '-i', str(mermaid_file), '-o', str(png_file), '-b', mermaid_bg]
             
             # 检测是否为横向布局的总结图（通常需要 2.35:1 宽高比）
             if 'graph LR' in mermaid_code and 'style' in mermaid_code:
                 # 设置宽高比为 2.35:1，例如宽度 2350px，高度 1000px
                 mmdc_args.extend(['-w', '2350', '-H', '1000'])
             
-            # 使用 mmdc 转换为 PNG（使用透明背景）
+            # 使用 mmdc 转换为 PNG
             result = subprocess.run(
                 mmdc_args,
                 capture_output=True,
@@ -999,10 +1205,10 @@ class WeChatHTMLConverter:
         self.style_config = STYLES[style]
         self.image_processor = ImageProcessor(base_dir)
         self.code_formatter = CodeBlockFormatter(style_config=self.style_config)
-        # FormulaProcessor 需要实例化，以便管理临时文件
-        self.formula_processor = FormulaProcessor()
-        # MermaidProcessor 需要实例化，以便管理临时文件
-        self.mermaid_processor = MermaidProcessor()
+        # FormulaProcessor 需要实例化，以便管理临时文件，传入样式配置以适配主题
+        self.formula_processor = FormulaProcessor(style_config=self.style_config)
+        # MermaidProcessor 需要实例化，以便管理临时文件，传入样式配置以适配主题
+        self.mermaid_processor = MermaidProcessor(style_config=self.style_config)
     
     def convert(self, md_file: str) -> str:
         """
