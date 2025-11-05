@@ -1378,23 +1378,33 @@ class WeChatHTMLConverter:
         # 对于H2和H3分块，内容需要用卡片包裹
         if level == 2 or level == 3:
             # H2和H3内容用卡片包裹，使用主题背景色（80%透明度）
+            # 但如果没有实际内容（只有空行），则不添加卡片
             card_content = []
+            has_real_content = False  # 标记是否有实际内容（不包括空行）
+            
             for item_type, *item_data in content:
                 if item_type == "heading":
                     # 子标题（H4+）
                     heading_text = item_data[0] if len(item_data) > 0 else ""
                     heading_level = item_data[1] if len(item_data) > 1 else 4
                     card_content.append(self._convert_heading(heading_text, heading_level))
+                    has_real_content = True
                 elif item_type == "paragraph":
-                    card_content.append(self._convert_paragraph(item_data[0]))
+                    # 段落：检查是否为空或只包含空白
+                    para_text = item_data[0] if len(item_data) > 0 else ""
+                    if para_text.strip():
+                        card_content.append(self._convert_paragraph(para_text))
+                        has_real_content = True
                 elif item_type == "code":
                     code_content, code_language = item_data[0], item_data[1] if len(item_data) > 1 else ""
                     card_content.append(self.code_formatter.format_code_block(code_content, code_language))
+                    has_real_content = True
                 elif item_type == "image":
                     src = item_data[0] if len(item_data) > 0 else ""
                     alt = item_data[1] if len(item_data) > 1 else ""
                     title = item_data[2] if len(item_data) > 2 else ""
                     card_content.append(self.image_processor.process_image(src, alt, title))
+                    has_real_content = True
                 elif item_type == "formula":
                     # 公式可能包含<p>标签，需要移除以避免嵌套
                     formula_html = self.formula_processor.format_block_formula(item_data[0])
@@ -1409,22 +1419,27 @@ class WeChatHTMLConverter:
                         data_url = data_url_match.group(1)
                         formula_html = f'<div style="text-align:center;margin:10px 0;"><img src="{data_url}" style="width:auto;max-width:90%;"></div>'
                     card_content.append(formula_html)
+                    has_real_content = True
                 elif item_type == "mermaid":
                     card_content.append(self.mermaid_processor.format_mermaid(item_data[0]))
+                    has_real_content = True
                 elif item_type == "list":
                     list_structure, is_ordered = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else False
-                    card_content.append(self._convert_list(list_structure, is_ordered))
+                    if list_structure:  # 只有当列表不为空时才添加
+                        card_content.append(self._convert_list(list_structure, is_ordered))
+                        has_real_content = True
                 elif item_type == "table":
                     table_rows, alignments = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else ['left']
-                    card_content.append(self._convert_table(table_rows, alignments))
+                    if table_rows:  # 只有当表格不为空时才添加
+                        card_content.append(self._convert_table(table_rows, alignments))
+                        has_real_content = True
                 elif item_type == "horizontal_rule":
                     card_content.append(self._convert_horizontal_rule())
-                elif item_type == "empty":
-                    card_content.append("<br>")
+                    has_real_content = True
+                # 注意：忽略 "empty" 类型，不标记为实际内容
             
-            # 将内容包裹在卡片中（使用div而不是p，避免嵌套问题）
-            # 使用主题背景色
-            if card_content:
+            # 只有当有实际内容时才将内容包裹在卡片中
+            if has_real_content and card_content:
                 card_html = f'<div style="background-color:{self.style_config.h2_h3_card_bg_color};border:1px solid {self.style_config.h2_h3_card_border_color};border-radius:8px;padding:12px 14px;margin:10px 0;line-height:1.9;">{"".join(card_content)}</div>'
                 html_parts.append(card_html)
         else:
