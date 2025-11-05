@@ -322,10 +322,14 @@ class CodeBlockFormatter:
             code_html = self._add_line_numbers(code_html, lines, line_number_width)
         
         # 代码块样式：支持横向滚动，使用主题配置的颜色
+        # 公众号对CSS支持有限，使用更兼容的滚动方式
         code_bg_color = self.style_config.code_bg_color if self.style_config else "#F4F4F4"
         code_border_color = self.style_config.code_border_color if self.style_config else "#E0E0E0"
-        return f"""<p style="font-family:monospace;background:{code_bg_color};border:1px solid {code_border_color};border-radius:8px;padding:10px;white-space:pre;overflow-x:auto;line-height:1.6;margin:0;word-wrap:normal;">
-{code_html}</p><br>"""
+        # 使用外层div包裹，内层使用pre标签或p标签，确保滚动在公众号中也能工作
+        # 方案：使用div包裹，设置overflow-x:scroll（而不是auto），并添加触摸滚动支持
+        return f"""<div style="background:{code_bg_color};border:1px solid {code_border_color};border-radius:8px;padding:10px;margin:10px 0;overflow-x:scroll;-webkit-overflow-scrolling:touch;overflow-y:hidden;">
+<p style="font-family:monospace;white-space:pre;line-height:1.6;margin:0;word-wrap:normal;min-width:100%;display:inline-block;">
+{code_html}</p></div><br>"""
     
     def _format_plain_code(self, code: str, lines: List[str], min_indent: int) -> str:
         """格式化纯文本代码（无语法高亮）"""
@@ -349,13 +353,15 @@ class CodeBlockFormatter:
                 if relative_indent < 0:
                     relative_indent = 0
                 
-                # 转义 HTML 特殊字符
+                # 转义 HTML 特殊字符，并将所有空格转换为 &nbsp; 以保留空格
+                # 先转义特殊字符，再处理空格
                 escaped_line = (line.lstrip()
                               .replace("&", "&amp;")
                               .replace("<", "&lt;")
                               .replace(">", "&gt;")
                               .replace('"', "&quot;")
-                              .replace("'", "&#39;"))
+                              .replace("'", "&#39;")
+                              .replace(" ", "&nbsp;"))  # 将所有空格转换为 &nbsp;
                 
                 # 添加缩进（每个空格用 2 个 &nbsp;）
                 indent_html = "&nbsp;" * (relative_indent * 2)
@@ -370,6 +376,31 @@ class CodeBlockFormatter:
         
         formatted_parts = []
         line_idx = 0
+        
+        def replace_spaces_in_text(text: str) -> str:
+            """将文本中的空格转换为 &nbsp;，但不影响HTML标签"""
+            # 使用正则表达式，只替换不在HTML标签内的空格
+            # 匹配模式：空格前后都不在HTML标签内
+            # 方法：先找到所有HTML标签的位置，然后只替换标签外的空格
+            result = []
+            i = 0
+            in_tag = False
+            
+            while i < len(text):
+                if text[i] == '<':
+                    in_tag = True
+                    result.append(text[i])
+                elif text[i] == '>':
+                    in_tag = False
+                    result.append(text[i])
+                elif text[i] == ' ' and not in_tag:
+                    # 不在标签内的空格，转换为 &nbsp;
+                    result.append('&nbsp;')
+                else:
+                    result.append(text[i])
+                i += 1
+            
+            return ''.join(result)
         
         for part in parts:
             if line_idx < len(original_lines):
@@ -389,9 +420,12 @@ class CodeBlockFormatter:
                     if relative_indent < 0:
                         relative_indent = 0
                     
+                    # 将高亮HTML中的空格转换为 &nbsp;（保留HTML标签）
+                    part_with_spaces = replace_spaces_in_text(part)
+                    
                     # 添加缩进（在每行的开始）
                     indent_html = "&nbsp;" * (relative_indent * 2)
-                    formatted_parts.append(f"{indent_html}{part}")
+                    formatted_parts.append(f"{indent_html}{part_with_spaces}")
                 else:
                     # 空行
                     formatted_parts.append(part)
