@@ -321,6 +321,10 @@ class CodeBlockFormatter:
         if show_line_numbers:
             code_html = self._add_line_numbers(code_html, lines, line_number_width)
         
+        # 最后一道防线：对整个代码HTML再次插入零宽字符，确保所有字符之间都有零宽字符
+        # 这样可以防止微信的自动分词逻辑，即使前面的处理有遗漏也能生效
+        code_html = self._insert_zero_width_chars(code_html)
+        
         # 代码块样式：支持横向滚动，使用主题配置的颜色
         # 按照微信公众号的正确做法：使用<p>标签 + white-space:pre + overflow-x:scroll
         code_bg_color = self.style_config.code_bg_color if self.style_config else "#F4F4F4"
@@ -334,15 +338,18 @@ class CodeBlockFormatter:
     @staticmethod
     def _insert_zero_width_chars(text: str) -> str:
         """
-        在文本字符之间插入零宽不连字（U+200C），破坏微信的自动分词逻辑
-        只在纯文本字符之间插入，不影响HTML标签和实体
+        在文本字符之间插入零宽字符，破坏微信的自动分词逻辑
+        使用零宽不连字（U+200C）和零宽空格（U+200B）交替插入
+        在每个字符之间插入（包括空格），确保完全破坏分词逻辑
         """
         ZERO_WIDTH_NON_JOINER = '\u200C'  # 零宽不连字
+        ZERO_WIDTH_SPACE = '\u200B'  # 零宽空格
         
         result = []
         i = 0
         in_tag = False
         in_entity = False
+        zw_char_index = 0  # 用于交替使用两种零宽字符
         
         while i < len(text):
             char = text[i]
@@ -359,20 +366,36 @@ class CodeBlockFormatter:
                 in_entity = True
                 result.append(char)
             elif char == ';' and in_entity:
+                # HTML实体结束，在实体后面插入零宽字符
                 in_entity = False
                 result.append(char)
+                # 在HTML实体后面也插入零宽字符，确保实体之间也有零宽字符
+                if i + 1 < len(text):
+                    next_char = text[i + 1]
+                    if next_char not in ['<', '>']:
+                        zw_char = ZERO_WIDTH_NON_JOINER if zw_char_index % 2 == 0 else ZERO_WIDTH_SPACE
+                        result.append(zw_char)
+                        zw_char_index += 1
             else:
-                # 普通字符
+                # 普通字符（包括空格、换行等所有字符）
                 result.append(char)
-                # 如果不在标签和实体中，且下一个字符也是普通字符，插入零宽字符
+                # 如果不在标签和实体中，在每个字符后面都插入零宽字符
                 if not in_tag and not in_entity:
-                    # 检查下一个字符
+                    # 检查下一个字符，确保不是标签开始或实体开始
                     if i + 1 < len(text):
                         next_char = text[i + 1]
-                        # 如果下一个字符不是 < > & 和空白字符，则插入零宽字符
-                        # 这样可以破坏微信的自动分词逻辑，防止换行
-                        if next_char not in ['<', '>', '&', ' ', '\t', '\n', '\r']:
-                            result.append(ZERO_WIDTH_NON_JOINER)
+                        # 如果下一个字符不是 < > &，则插入零宽字符
+                        # 这样可以确保所有可见字符之间都有零宽字符，破坏微信的分词逻辑
+                        if next_char not in ['<', '>', '&']:
+                            # 交替使用零宽不连字和零宽空格，增强效果
+                            zw_char = ZERO_WIDTH_NON_JOINER if zw_char_index % 2 == 0 else ZERO_WIDTH_SPACE
+                            result.append(zw_char)
+                            zw_char_index += 1
+                        # 如果下一个字符是 &（实体开始），也在当前字符后插入零宽字符
+                        elif next_char == '&':
+                            zw_char = ZERO_WIDTH_NON_JOINER if zw_char_index % 2 == 0 else ZERO_WIDTH_SPACE
+                            result.append(zw_char)
+                            zw_char_index += 1
             
             i += 1
         
@@ -400,9 +423,13 @@ class CodeBlockFormatter:
                 if relative_indent < 0:
                     relative_indent = 0
                 
+                # 先插入零宽字符到原始文本，破坏微信的自动分词逻辑
+                # 这样可以在空格转换为&nbsp;之前就插入零宽字符
+                line_with_zw = self._insert_zero_width_chars(line.lstrip())
+                
                 # 转义 HTML 特殊字符，并将所有空格转换为 &nbsp; 以保留空格
-                # 先转义特殊字符，再处理空格
-                escaped_line = (line.lstrip()
+                # 注意：零宽字符不会影响转义和空格转换
+                escaped_line = (line_with_zw
                               .replace("&", "&amp;")
                               .replace("<", "&lt;")
                               .replace(">", "&gt;")
@@ -410,11 +437,8 @@ class CodeBlockFormatter:
                               .replace("'", "&#39;")
                               .replace(" ", "&nbsp;"))  # 将所有空格转换为 &nbsp;
                 
-                # 在字符之间插入零宽字符，破坏微信的自动分词逻辑
-                escaped_line = self._insert_zero_width_chars(escaped_line)
-                
-                # 添加缩进（每个空格用 2 个 &nbsp;）
-                indent_html = "&nbsp;" * (relative_indent * 2)
+                # 添加缩进（每个空格用 1 个 &nbsp;）
+                indent_html = "&nbsp;" * relative_indent
                 # 每行代码用span包裹并设置white-space:nowrap，强制不换行
                 # 配合外层p标签的white-space:pre和overflow-x:auto，双重保障防止换行
                 formatted_lines.append(f'<span style="white-space:nowrap;">{indent_html}{escaped_line}</span><br>')
@@ -478,8 +502,8 @@ class CodeBlockFormatter:
                     # 在字符之间插入零宽字符，破坏微信的自动分词逻辑
                     part_with_spaces = self._insert_zero_width_chars(part_with_spaces)
                     
-                    # 添加缩进（在每行的开始）
-                    indent_html = "&nbsp;" * (relative_indent * 2)
+                    # 添加缩进（在每行的开始，每个空格用 1 个 &nbsp;）
+                    indent_html = "&nbsp;" * relative_indent
                     # 每行代码用span包裹并设置white-space:nowrap，强制不换行
                     formatted_parts.append(f'<span style="white-space:nowrap;">{indent_html}{part_with_spaces}</span>')
                 else:

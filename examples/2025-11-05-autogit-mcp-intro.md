@@ -316,7 +316,7 @@ export GIT_TIMEOUT=30
   "mcpServers": {
     "autogit-mcp": {
       "command": "python",
-      "args": ["-m", "src.git_tool.mcp_server"],
+      "args": ["http://localhost:9010/mcp/"],
       "env": {
         "GITHUB_TOKEN": "ghp_xxxxxxxxxxxxxxxxxxxx",
         "GITEE_TOKEN": "gitee_xxxxxxxxxxxxxxxxxxxx",
