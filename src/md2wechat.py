@@ -239,7 +239,7 @@ class CodeBlockFormatter:
     
     def format_code_block(self, code: str, language: str = "", show_line_numbers: bool = True) -> str:
         """
-        将代码块转换为微信公众号兼容格式
+        公众号安全：逐行 <span> + &nbsp; 不换行，超宽横向滚动；不插入零宽字符，复制到 IDE 安全
         
         Args:
             code: 代码内容
@@ -249,91 +249,115 @@ class CodeBlockFormatter:
         Returns:
             格式化后的 HTML
         """
-        lines = code.rstrip().split("\n")
+        import html
+        
+        code = code.rstrip("\n")
+        lines = code.split("\n")
         if not lines:
             return ""
-        
-        # 计算行号宽度（用于对齐）
-        total_lines = len(lines)
-        line_number_width = len(str(total_lines))  # 行号数字的位数
-        
-        # 计算最小缩进（忽略空行）
-        min_indent = float('inf')
-        for line in lines:
-            if line.strip():  # 忽略空行
-                # 计算前导空格数（支持空格和制表符）
-                leading_spaces = 0
-                for char in line:
-                    if char == ' ':
-                        leading_spaces += 1
-                    elif char == '\t':
-                        leading_spaces += 4  # 制表符视为4个空格
-                    else:
-                        break
-                min_indent = min(min_indent, leading_spaces)
-        
-        if min_indent == float('inf'):
-            min_indent = 0
-        
-        # 尝试使用 Pygments 进行语法高亮（如果支持该语言）
-        try:
-            from pygments import highlight
-            from pygments.lexers import get_lexer_by_name
-            from pygments.util import ClassNotFound
-            
-            # 尝试获取对应的 lexer
-            lexer = None
-            if language:
-                try:
-                    lexer = get_lexer_by_name(language, stripall=True)
-                except ClassNotFound:
-                    pass
-            
-            if lexer:
-                # 使用 Pygments 进行语法高亮
-                # 使用自定义的 InlineStyleFormatter，输出内联样式（微信不支持 class）
+
+        # 计算行号宽度
+        n = len(lines)
+        lnw = len(str(n)) if show_line_numbers else 0
+
+        # 语法高亮（可选，失败则回退）
+        # 优先使用自定义的 InlineStyleFormatter（如果可用），否则使用标准 HtmlFormatter
+        highlighted_lines = None
+        if language:
+            try:
+                from pygments import highlight
+                from pygments.lexers import get_lexer_by_name
+                from pygments.util import ClassNotFound
+                
+                lexer = get_lexer_by_name(language, stripall=False)
+                
+                # 优先尝试使用自定义的 InlineStyleFormatter（输出格式更可控）
                 try:
                     try:
                         from .inline_formatter import InlineStyleFormatter
                     except ImportError:
                         from inline_formatter import InlineStyleFormatter
                     formatter = InlineStyleFormatter()
-                    highlighted_code = highlight(code, lexer, formatter)
-                    # highlighted_code 已经是 HTML，包含内联样式
-                    # 但需要处理缩进（Pygments 不保留缩进）
-                    code_html = self._apply_indentation_to_highlighted(highlighted_code, lines, min_indent)
-                except (ImportError, Exception) as e:
-                    # 如果导入失败或高亮失败，使用原来的方法
-                    print(f"Warning: Syntax highlighting failed: {e}")
-                    code_html = self._format_plain_code(code, lines, min_indent)
+                    html_all = highlight(code, lexer, formatter)
+                except (ImportError, Exception):
+                    # 回退到标准 HtmlFormatter
+                    from pygments.formatters import HtmlFormatter
+                    fmt = HtmlFormatter(noclasses=True, nowrap=True)
+                    html_all = highlight(code, lexer, fmt)
+                
+                # 统一换行（Pygments 可能输出 <span>...<br>）
+                html_all = html_all.replace("\r\n", "\n").replace("\r", "\n")
+                
+                # 移除 Pygments 可能添加的包装标签
+                # HtmlFormatter 可能输出 <div class="highlight"><pre>...</pre></div>
+                import re
+                # 移除 <div> 包装
+                html_all = re.sub(r'<div[^>]*>', '', html_all)
+                html_all = html_all.replace('</div>', '')
+                # 移除 <pre> 标签
+                html_all = html_all.replace('<pre>', '').replace('</pre>', '')
+                # 移除可能的 <style> 标签（Pygments 可能添加）
+                html_all = re.sub(r'<style[^>]*>.*?</style>', '', html_all, flags=re.DOTALL)
+                
+                # 按 <br> 或换行符分割
+                if '<br>' in html_all:
+                    highlighted_lines = html_all.split('<br>')
+                else:
+                    highlighted_lines = html_all.split("\n")
+                
+                # 移除每行首尾的空白字符
+                highlighted_lines = [line.strip() for line in highlighted_lines]
+                
+                # 兜底：行数对不上就放弃高亮
+                if len(highlighted_lines) != len(lines):
+                    highlighted_lines = None
+            except (ClassNotFound, ImportError, Exception):
+                # 如果高亮失败，静默回退到纯文本
+                highlighted_lines = None
+
+        # 逐行构造：空格->&nbsp;，Tab -> 4个&nbsp;
+        def to_nbsp(s: str) -> str:
+            s = s.replace("\t", "    ")
+            # 对纯文本需要转义；若用了高亮，就不再额外转义那一行的标签
+            return s.replace(" ", "&nbsp;")
+
+        html_lines = []
+        for i, raw in enumerate(lines, 1):
+            if highlighted_lines is not None and i <= len(highlighted_lines):
+                # 这行已经带 <span style=...> 标签了：只把裸空格变成&nbsp;，不要再全局 html.escape
+                line_inner = highlighted_lines[i-1].replace("\t", "    ").replace(" ", "&nbsp;")
             else:
-                # 如果没有语法高亮，使用原来的方法
-                code_html = self._format_plain_code(code, lines, min_indent)
-        except ImportError:
-            # 如果没有安装 Pygments，使用原来的方法
-            code_html = self._format_plain_code(code, lines, min_indent)
-        except Exception as e:
-            # 如果高亮失败，回退到原来的方法
-            print(f"Warning: Syntax highlighting failed for {language}: {e}")
-            code_html = self._format_plain_code(code, lines, min_indent)
-        
-        # 如果启用行号，需要重新格式化代码以包含行号
-        if show_line_numbers:
-            code_html = self._add_line_numbers(code_html, lines, line_number_width)
-        
-        # 最后一道防线：对整个代码HTML再次插入零宽字符，确保所有字符之间都有零宽字符
-        # 这样可以防止微信的自动分词逻辑，即使前面的处理有遗漏也能生效
-        code_html = self._insert_zero_width_chars(code_html)
-        
-        # 代码块样式：支持横向滚动，使用主题配置的颜色
-        # 按照微信公众号的正确做法：使用<p>标签 + white-space:pre + overflow-x:scroll
-        code_bg_color = self.style_config.code_bg_color if self.style_config else "#F4F4F4"
-        code_border_color = self.style_config.code_border_color if self.style_config else "#E0E0E0"
-        # 关键：使用<p>标签而不是pre/code，white-space:pre保留格式但不自动换行
-        # overflow-x:scroll 支持横向滚动，-webkit-overflow-scrolling:touch 支持触摸滚动
-        # 每行代码已用span包裹并设置white-space:nowrap，双重保障防止换行
-        return f"""<p style="background-color:{code_bg_color};border:1px solid {code_border_color};border-radius:8px;font-family:monospace;white-space:pre;overflow-x:scroll;-webkit-overflow-scrolling:touch;padding:10px;line-height:1.6;margin:10px 0;word-wrap:normal;word-break:keep-all;">
-{code_html}</p><br>"""
+                # 纯文本：先转义，再空格替换
+                line_inner = to_nbsp(html.escape(raw))
+
+            if show_line_numbers:
+                ln = str(i).rjust(lnw, " ")
+                ln = ln.replace(" ", "&nbsp;")
+                # 行号与代码分两块，整体 nowrap
+                html_line = (
+                    f'<span style="display:block;white-space:nowrap;">'
+                    f'<span style="color:#999;display:inline-block;width:{lnw + 1}em;text-align:right;padding-right:0.8em;user-select:none;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;">{ln}</span>&nbsp;{line_inner}'
+                    f'</span>'
+                )
+            else:
+                html_line = f'<span style="display:block;white-space:nowrap;">{line_inner}</span>'
+
+            html_lines.append(html_line)
+
+        code_bg = self.style_config.code_bg_color if self.style_config else "#F4F4F4"
+        code_bd = self.style_config.code_border_color if self.style_config else "#E0E0E0"
+
+        # 外容器不使用 <pre>，避免被清洗；使用横向滚动 + 等宽字体
+        # 这里不用 white-space:pre；逐行 span 已经 nowrap，复制安全
+        return (
+            f'<p style="background-color:{code_bg};'
+            f'border:1px solid {code_bd};border-radius:8px;'
+            f'font-family:Consolas,Menlo,Monaco,monospace;'
+            f'overflow-x:auto;-webkit-overflow-scrolling:touch;'
+            f'padding:10px;line-height:1.6;margin:10px 0;">\n'
+            + "\n".join(html_lines) +
+            '\n</p><br>'
+        )
     
     @staticmethod
     def _insert_zero_width_chars(text: str) -> str:
@@ -1826,8 +1850,12 @@ class WeChatHTMLConverter:
     
     def _convert_list_item_with_bold_colon(self, text: str) -> str:
         """
-        转换包含加粗文本后跟冒号的列表项
-        只对"加粗文本+冒号"部分应用 white-space: nowrap，描述文本可以正常换行
+        转换列表项文本
+        
+        规则：
+        1. **加粗文本**：描述 → 应用防换行处理（加粗+冒号）
+        2. 普通文本：描述 → 应用防换行处理（无加粗但有冒号）
+        3. 普通文本（无冒号） → 正常处理（不需要防换行）
         
         Args:
             text: 列表项文本（Markdown 格式）
@@ -1835,29 +1863,90 @@ class WeChatHTMLConverter:
         Returns:
             HTML 字符串
         """
-        # 匹配模式：**加粗文本**：或 **加粗文本**：
-        bold_colon_pattern = r'(\*\*[^*]+\*\*[：:])(.*)'
-        match = re.match(bold_colon_pattern, text)
+        zw_char = '\u200c\u200d'  # 零宽字符组合
         
-        if match:
+        # 匹配模式1：**加粗文本**：描述
+        bold_colon_pattern = r'(\*\*[^*]+\*\*[：:])(.*)'
+        bold_match = re.match(bold_colon_pattern, text)
+        
+        if bold_match:
             # 分别处理加粗部分和描述部分
-            bold_part = match.group(1)  # **text**：
-            desc_part = match.group(2).strip()  # 描述文本
+            bold_part = bold_match.group(1)  # **text**：
+            desc_part = bold_match.group(2).strip()  # 描述文本
             
             # 转换加粗部分（包含冒号）
             converted_bold = self._convert_inline_markdown(bold_part)
-            # 对加粗部分应用 white-space: nowrap，确保标题和冒号不分离
-            bold_html = f'<span style="white-space: nowrap;">{converted_bold}</span>'
             
-            # 转换描述部分（可以正常换行）
+            # 在 </strong> 和冒号之间插入多个零宽字符，确保冒号不会单独换到下一行
+            # 在冒号前插入多个零宽字符，形成更强的防换行连接
+            bold_html = converted_bold.replace('</strong>', f'{zw_char}</strong>')
+            # 如果冒号不在 strong 标签内，需要在冒号前也插入多个零宽字符
+            if '：' in bold_html or ':' in bold_html:
+                # 在冒号前插入多个零宽字符，确保冒号不会单独换行
+                bold_html = re.sub(r'(</strong>)([：:])', lambda m: f'{m.group(1)}{zw_char}{zw_char}{zw_char}{m.group(2)}{zw_char}', bold_html)
+                # 如果冒号不在标签后，也需要处理
+                bold_html = re.sub(r'([^：:])([：:])', lambda m: f'{m.group(1)}{zw_char}{zw_char}{zw_char}{m.group(2)}{zw_char}', bold_html, count=1)
+            
+            # 转换描述部分
             if desc_part:
                 desc_html = self._convert_inline_markdown(desc_part)
-                return f"{bold_html} {desc_html}"
+                # 只将描述文本的第一个空格替换为 &nbsp;，防止在冒号后立即换行
+                # 但描述文本本身可以换行（不包裹在 nowrap 中）
+                if desc_part.startswith(' '):
+                    desc_html_final = '&nbsp;' + desc_html
+                else:
+                    desc_html_final = desc_html
+                # 只对标题+冒号部分使用 nowrap，确保冒号不会单独换行
+                # 描述部分允许自然换行
+                return f'<span style="white-space: nowrap;">{bold_html}</span>&nbsp;{desc_html_final}'
             else:
-                return bold_html
-        else:
-            # 不匹配模式，正常转换
-            return self._convert_inline_markdown(text)
+                return f'<span style="white-space: nowrap;">{bold_html}</span>'
+        
+        # 匹配模式2：普通文本：描述（无加粗但有冒号）
+        # 匹配格式：文本（可能包含代码、链接等）：描述
+        # 查找第一个冒号（中文或英文）的位置
+        colon_pos = -1
+        for i, char in enumerate(text):
+            if char in '：:':
+                colon_pos = i
+                break
+        
+        if colon_pos > 0:
+            # 找到了冒号，分别处理标题部分和描述部分
+            title_part = text[:colon_pos + 1]  # text：
+            desc_part = text[colon_pos + 1:].strip()  # 描述文本
+            
+            # 转换标题部分（包含冒号）
+            converted_title = self._convert_inline_markdown(title_part)
+            
+            # 在冒号前后插入多个零宽字符，确保冒号不会单独换到下一行
+            # 处理 </code>、</strong> 等标签后的冒号
+            title_html = re.sub(r'(</\w+>)([：:])', lambda m: f'{m.group(1)}{zw_char}{zw_char}{zw_char}{m.group(2)}{zw_char}', converted_title)
+            # 如果冒号不在标签内，也需要处理
+            if '：' in title_html or ':' in title_html:
+                # 在冒号前后插入多个零宽字符，确保冒号不会单独换行
+                # 先处理标签后的冒号（如果还没有处理）
+                title_html = re.sub(r'(</\w+>)([：:])', lambda m: f'{m.group(1)}{zw_char}{zw_char}{zw_char}{m.group(2)}{zw_char}', title_html)
+                # 处理普通文本中的冒号（如果还没有处理）
+                title_html = re.sub(r'([^：:])([：:])', lambda m: f'{m.group(1)}{zw_char}{zw_char}{zw_char}{m.group(2)}{zw_char}', title_html, count=1)
+            
+            # 转换描述部分
+            if desc_part:
+                desc_html = self._convert_inline_markdown(desc_part)
+                # 只将描述文本的第一个空格替换为 &nbsp;，防止在冒号后立即换行
+                # 但描述文本本身可以换行（不包裹在 nowrap 中）
+                if desc_part.startswith(' '):
+                    desc_html_final = '&nbsp;' + desc_html
+                else:
+                    desc_html_final = desc_html
+                # 只对标题+冒号部分使用 nowrap，确保冒号不会单独换行
+                # 描述部分允许自然换行
+                return f'<span style="white-space: nowrap;">{title_html}</span>&nbsp;{desc_html_final}'
+            else:
+                return f'<span style="white-space: nowrap;">{title_html}</span>'
+        
+        # 不匹配任何模式，正常转换（无冒号的普通文本）
+        return self._convert_inline_markdown(text)
     
     def _convert_list(self, list_structure: List, is_ordered: bool) -> str:
         """
