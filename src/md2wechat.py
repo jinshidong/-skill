@@ -1246,6 +1246,20 @@ class WeChatHTMLConverter:
                     i += 1
                     continue
             
+            # 水平分割线（---, ***, ___，至少3个，前后可以有空格）
+            stripped = line.strip()
+            if stripped and len(stripped) >= 3:
+                # 检查是否全部是 -、* 或 _
+                if stripped.replace('-', '').replace('*', '').replace('_', '') == '':
+                    # 至少3个相同的字符
+                    if (stripped.count('-') >= 3 and stripped.replace('-', '') == '') or \
+                       (stripped.count('*') >= 3 and stripped.replace('*', '') == '') or \
+                       (stripped.count('_') >= 3 and stripped.replace('_', '') == ''):
+                        flush_para_buffer(parabuf)
+                        (cur['items'] if cur else preface).append(('horizontal_rule',))
+                        i += 1
+                        continue
+            
             # 空行
             if not line.strip():
                 parabuf.append('')
@@ -1403,6 +1417,8 @@ class WeChatHTMLConverter:
                 elif item_type == "table":
                     table_rows, alignments = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else ['left']
                     card_content.append(self._convert_table(table_rows, alignments))
+                elif item_type == "horizontal_rule":
+                    card_content.append(self._convert_horizontal_rule())
                 elif item_type == "empty":
                     card_content.append("<br>")
             
@@ -1439,6 +1455,8 @@ class WeChatHTMLConverter:
                 elif item_type == "table":
                     table_rows, alignments = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else ['left']
                     html_parts.append(self._convert_table(table_rows, alignments))
+                elif item_type == "horizontal_rule":
+                    html_parts.append(self._convert_horizontal_rule())
                 elif item_type == "empty":
                     html_parts.append("<br>")
         
@@ -1470,6 +1488,12 @@ class WeChatHTMLConverter:
         
         # 添加段落结束标记
         return f"{html_text}<br><br>"
+    
+    def _convert_horizontal_rule(self) -> str:
+        """转换水平分割线"""
+        # 使用 <hr> 标签，添加样式使其在微信中正确显示
+        # 使用主题颜色作为分割线颜色
+        return f'<hr style="border:none;border-top:1px solid {self.style_config.h2_h3_card_border_color};margin:20px 0;width:100%;"><br>'
     
     def _build_list_structure(self, items: List[Tuple[str, int]], base_indent: int, is_ordered: bool) -> List:
         """
