@@ -625,39 +625,18 @@ class FormulaProcessor:
         plt.rcParams['mathtext.fontset'] = 'dejavusans'
         plt.rcParams['font.family'] = 'sans-serif'
         
-        # 根据主题背景色决定图形背景色
-        # 为了确保公式在任何背景下都清晰可见，默认使用白色背景
-        # 只有在背景是纯白色或非常接近白色时才使用透明背景
-        figure_bg_color = 'white'  # 默认白色，确保对比度
-        transparent = False
-        if self.style_config:
-            card_bg = self.style_config.card_bg_color
-            # 如果背景是纯白色或非常接近白色，可以使用透明背景
-            if self._is_light_color(card_bg):
-                import re
-                hex_match = re.match(r'^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$', card_bg)
-                if hex_match:
-                    r = int(hex_match.group(1), 16)
-                    g = int(hex_match.group(2), 16)
-                    b = int(hex_match.group(3), 16)
-                    # 如果所有颜色分量都大于 240（接近白色），可以使用透明背景
-                    if r > 240 and g > 240 and b > 240:
-                        figure_bg_color = 'none'
-                        transparent = True
-                elif card_bg.lower() in ['#ffffff', '#fff', 'white', 'rgb(255,255,255)']:
-                    figure_bg_color = 'none'
-                    transparent = True
+        # 始终使用透明背景，在 HTML 层面添加浅色背景容器来强调
         
         # 创建图形（行内公式使用更小的尺寸）
         if is_inline:
             # 行内公式：使用非常小的图形，只包含公式内容
-            fig, ax = plt.subplots(figsize=(6, 0.4), facecolor=figure_bg_color)
+            fig, ax = plt.subplots(figsize=(6, 0.4), facecolor='none')
         else:
             # 块级公式：使用较大的图形
-            fig, ax = plt.subplots(figsize=(10, 1.5), facecolor=figure_bg_color)
+            fig, ax = plt.subplots(figsize=(10, 1.5), facecolor='none')
         
         ax.axis('off')
-        ax.set_facecolor(figure_bg_color if figure_bg_color != 'none' else 'white')
+        ax.set_facecolor('none')
         
         # 渲染公式
         fontsize = 12 if is_inline else 18
@@ -672,12 +651,11 @@ class FormulaProcessor:
                 fontsize=fontsize, ha='center', va='center',
                 transform=ax.transAxes, usetex=False)
         
-        # 保存到内存缓冲区
+        # 保存到内存缓冲区（使用透明背景）
         buf = BytesIO()
         plt.savefig(buf, format='png', dpi=150 if is_inline else 200, 
                    bbox_inches='tight', pad_inches=0.05 if is_inline else 0.1,
-                   facecolor=figure_bg_color if figure_bg_color != 'none' else 'white',
-                   transparent=transparent)
+                   facecolor='none', transparent=True)
         plt.close(fig)
         
         # 转换为 base64
@@ -709,30 +687,18 @@ class FormulaProcessor:
         logging.getLogger('matplotlib').setLevel(logging.ERROR)
         logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
         
-        # 根据主题背景色决定图形背景色
-        figure_bg_color = 'white'  # 默认白色，确保对比度
-        transparent = False
-        if self.style_config:
-            card_bg = self.style_config.card_bg_color
-            # 如果背景是浅色（接近白色），可以使用透明背景
-            if self._is_light_color(card_bg) and card_bg.lower() in ['#ffffff', '#fff', 'white', 'rgb(255,255,255)']:
-                figure_bg_color = 'none'
-                transparent = True
-            else:
-                # 对于其他颜色背景，使用白色背景确保公式可见
-                figure_bg_color = 'white'
-                transparent = False
+        # 始终使用透明背景，在 HTML 层面添加浅色背景容器来强调
         
         # 创建图形（行内公式使用更小的尺寸）
         if is_inline:
             # 行内公式：使用非常小的图形，只包含公式内容
-            fig, ax = plt.subplots(figsize=(6, 0.4), facecolor=figure_bg_color)
+            fig, ax = plt.subplots(figsize=(6, 0.4), facecolor='none')
         else:
             # 块级公式：使用较大的图形
-            fig, ax = plt.subplots(figsize=(10, 1.5), facecolor=figure_bg_color)
+            fig, ax = plt.subplots(figsize=(10, 1.5), facecolor='none')
         
         ax.axis('off')
-        ax.set_facecolor(figure_bg_color if figure_bg_color != 'none' else 'white')
+        ax.set_facecolor('none')
         
         # 渲染公式（行内公式使用更小的字体）
         fontsize = 12 if is_inline else 18
@@ -748,12 +714,11 @@ class FormulaProcessor:
                 fontsize=fontsize, ha='center', va='center',
                 transform=ax.transAxes, usetex=False)  # 使用 matplotlib 的数学文本渲染
         
-        # 保存到内存缓冲区
+        # 保存到内存缓冲区（使用透明背景）
         buf = BytesIO()
         plt.savefig(buf, format='png', dpi=150 if is_inline else 200, 
                    bbox_inches='tight', pad_inches=0.05 if is_inline else 0.1,
-                   facecolor=figure_bg_color if figure_bg_color != 'none' else 'white',
-                   transparent=transparent)
+                   facecolor='none', transparent=True)
         plt.close(fig)
         
         # 转换为 base64
@@ -795,35 +760,9 @@ class FormulaProcessor:
         # 设置 DPI（行内公式使用较小 DPI，块级公式使用较大 DPI）
         dpi = 150 if not is_inline else 120
         
-        # 根据主题背景色决定是否使用白色背景
-        # 为了确保公式在任何背景下都清晰可见，默认使用白色背景
-        # 只有在背景是纯白色或非常接近白色时才使用透明背景
-        use_white_bg = True  # 默认使用白色背景，确保对比度
-        if self.style_config:
-            # 检查卡片背景色（公式通常显示在卡片中）
-            card_bg = self.style_config.card_bg_color
-            # 如果背景是纯白色或非常接近白色，可以使用透明背景
-            if self._is_light_color(card_bg):
-                # 检查是否接近纯白色（RGB 值都大于 240）
-                import re
-                hex_match = re.match(r'^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$', card_bg)
-                if hex_match:
-                    r = int(hex_match.group(1), 16)
-                    g = int(hex_match.group(2), 16)
-                    b = int(hex_match.group(3), 16)
-                    # 如果所有颜色分量都大于 240（接近白色），可以使用透明背景
-                    if r > 240 and g > 240 and b > 240:
-                        use_white_bg = False
-                elif card_bg.lower() in ['#ffffff', '#fff', 'white', 'rgb(255,255,255)']:
-                    use_white_bg = False
-        
-        # 构建 CodeCogs URL
-        # CodeCogs URL 格式：整个查询参数需要进行 URL 编码
-        if use_white_bg:
-            query_part = f"\\dpi{{{dpi}}}\\bg_white {latex}"
-        else:
-            # 使用透明背景（对于亮色主题）
-            query_part = f"\\dpi{{{dpi}}} {latex}"
+        # 始终使用透明背景，在 HTML 层面添加浅色背景容器来强调
+        # 构建 CodeCogs URL（使用透明背景）
+        query_part = f"\\dpi{{{dpi}}} {latex}"
         encoded_query = quote(query_part, safe='')
         url = f"https://latex.codecogs.com/png.image?{encoded_query}"
         
@@ -893,27 +832,29 @@ class FormulaProcessor:
             latex: LaTeX 公式代码
         
         Returns:
-            HTML img 标签（内联显示，base64 嵌入）
+            HTML img 标签（内联显示，base64 嵌入，无背景强调）
         """
         data_url = self.render_latex_to_base64(latex, is_inline=True)
         # 行内公式样式：inline-block 确保不换行，vertical-align 与文本对齐，限制高度
         # 宽度自适应内容，不设置 max-width，让图片自然宽度显示
+        # 行内公式不使用背景强调，保持简洁
         return f'<img src="{data_url}" style="display:inline-block;vertical-align:middle;max-height:1.2em;height:auto;width:auto;">'
     
     def format_block_formula(self, latex: str) -> str:
         """
-        格式化块级公式（居中显示）
+        格式化块级公式（居中显示，带浅色背景强调）
         
         Args:
             latex: LaTeX 公式代码
         
         Returns:
-            HTML 段落标签（居中显示，base64 嵌入）
+            HTML 段落标签（居中显示，base64 嵌入，带米黄色背景强调）
         """
         data_url = self.render_latex_to_base64(latex, is_inline=False)
-        return f'''<p style="text-align:center;">
+        # 块级公式使用米黄色背景（#FFF8DC）来强调，添加内边距和圆角
+        return f'''<div style="text-align:center;background-color:#FFF8DC;padding:10px;border-radius:6px;margin:10px 0;">
   <img src="{data_url}" style="width:auto;max-width:90%;">
-</p><br>'''
+</div><br>'''
     
     def cleanup_temp_files(self):
         """清理临时文件"""
@@ -1003,29 +944,11 @@ class MermaidProcessor:
             with open(mermaid_file, 'w', encoding='utf-8') as f:
                 f.write(mermaid_code)
             
-            # 根据主题背景色决定 Mermaid 背景色
-            # 为了确保图表在任何背景下都清晰可见，默认使用白色背景
-            # 只有在背景是纯白色或非常接近白色时才使用透明背景
-            mermaid_bg = 'white'  # 默认白色，确保对比度
-            if self.style_config:
-                card_bg = self.style_config.card_bg_color
-                # 如果背景是纯白色或非常接近白色，可以使用透明背景
-                if self._is_light_color(card_bg):
-                    import re
-                    hex_match = re.match(r'^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$', card_bg)
-                    if hex_match:
-                        r = int(hex_match.group(1), 16)
-                        g = int(hex_match.group(2), 16)
-                        b = int(hex_match.group(3), 16)
-                        # 如果所有颜色分量都大于 240（接近白色），可以使用透明背景
-                        if r > 240 and g > 240 and b > 240:
-                            mermaid_bg = 'transparent'
-                    elif card_bg.lower() in ['#ffffff', '#fff', 'white', 'rgb(255,255,255)']:
-                        mermaid_bg = 'transparent'
+            # 始终使用透明背景，在 HTML 层面添加浅色绿色背景容器来强调
             
             # 检查是否需要设置宽高比（检测 graph LR 横向布局，通常需要更宽的图片）
             # 如果包含 "graph LR" 且包含 style 配置，可能是需要特定宽高比的总结图
-            mmdc_args = ['mmdc', '-i', str(mermaid_file), '-o', str(png_file), '-b', mermaid_bg]
+            mmdc_args = ['mmdc', '-i', str(mermaid_file), '-o', str(png_file), '-b', 'transparent']
             
             # 检测是否为横向布局的总结图（通常需要 2.35:1 宽高比）
             if 'graph LR' in mermaid_code and 'style' in mermaid_code:
@@ -1068,25 +991,26 @@ class MermaidProcessor:
     
     def format_mermaid(self, mermaid_code: str) -> str:
         """
-        格式化 Mermaid 图为 HTML img 标签
+        格式化 Mermaid 图为 HTML div 标签（带极浅绿色背景强调）
         
         Args:
             mermaid_code: Mermaid 代码
         
         Returns:
-            HTML img 标签（居中显示，base64 嵌入 PNG）
+            HTML div 标签（居中显示，base64 嵌入 PNG，带极浅绿色背景）
         """
         try:
             data_url = self.convert_mermaid_to_png_base64(mermaid_code)
-            return f'''<span style="display:block;text-align:center;">
-    <img src="{data_url}" style="max-width:100%;height:auto;border:1px solid #EAEAEA;">
-</span><br>'''
+            # 使用极浅绿色背景（#F0FFF0）来强调 Mermaid 图表，添加内边距和圆角
+            return f'''<div style="display:block;text-align:center;background-color:#F0FFF0;padding:12px;border-radius:8px;margin:10px 0;">
+    <img src="{data_url}" style="max-width:100%;height:auto;">
+</div><br>'''
         except Exception as e:
             print(f"Warning: Failed to render Mermaid diagram: {e}")
-            # 返回错误提示
-            return f'''<span style="display:block;text-align:center;color:#FF0000;">
-    [Mermaid 图渲染失败: {str(e)}]
-</span><br>'''
+            # 返回错误提示（也带极浅绿色背景）
+            return f'''<div style="display:block;text-align:center;color:#FF0000;background-color:#F0FFF0;padding:12px;border-radius:8px;margin:10px 0;">
+    Mermaid 图表渲染失败: {str(e)}
+</div><br>'''
     
     def cleanup_temp_files(self):
         """清理临时文件"""
