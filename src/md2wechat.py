@@ -30,6 +30,18 @@ class StyleConfig:
     card_bg_color: str = "#FFFFFF"
     card_border_color: str = "#D9D9D9"
     card_text_color: str = "#333333"
+    # H2/H3 卡片样式（用于包裹H2/H3标题后的内容）
+    h2_h3_card_bg_color: str = "rgba(250, 250, 250, 0.4)"  # 支持rgba格式
+    h2_h3_card_border_color: str = "#E8E8E8"
+    # H2 标题样式（粗横线中间为标题）
+    h2_title_line_color: str = "#333333"
+    h2_title_text_color: str = "#333333"
+    h2_title_font_size: str = "18px"
+    # H3 标题样式（卡片式）
+    h3_title_bg_color: str = "#F5F5F5"
+    h3_title_border_color: str = "#3C3C3C"
+    h3_title_text_color: str = "#333333"
+    h3_title_font_size: str = "16px"
     # 代码块样式
     code_bg_color: str = "#F4F4F4"
     code_border_color: str = "#E0E0E0"
@@ -51,6 +63,15 @@ STYLES = {
         card_bg_color="#FFFFFF",
         card_border_color="#D9D9D9",
         card_text_color="#333333",
+        h2_h3_card_bg_color="rgba(250, 250, 250, 0.4)",
+        h2_h3_card_border_color="#E8E8E8",
+        h2_title_line_color="#333333",
+        h2_title_text_color="#333333",
+        h2_title_font_size="18px",
+        h3_title_bg_color="#F5F5F5",
+        h3_title_border_color="#3C3C3C",
+        h3_title_text_color="#333333",
+        h3_title_font_size="16px",
         code_bg_color="#F4F4F4",
         code_border_color="#E0E0E0",
         meta_text_color="#888888",
@@ -58,9 +79,78 @@ STYLES = {
         source_text_color="#999999",
         source_font_size="12px",
     ),
-    # 可以在这里添加更多风格
-    # "minimal": StyleConfig(...),
-    # "colorful": StyleConfig(...),
+    "festival": StyleConfig(
+        name="节日快乐色彩系",
+        header_bg_color="#FF6B6B",  # 温暖的红色
+        header_text_color="#FFFFFF",
+        header_font_size="20px",
+        card_bg_color="#FFF8E1",  # 温暖的米白色
+        card_border_color="#FFB74D",  # 金色边框
+        card_text_color="#5D4037",  # 深棕色文字
+        h2_h3_card_bg_color="rgba(255, 235, 59, 0.3)",  # 淡金色背景
+        h2_h3_card_border_color="#FFB74D",  # 金色边框
+        h2_title_line_color="#FF6B6B",  # 红色横线
+        h2_title_text_color="#D32F2F",  # 深红色标题
+        h2_title_font_size="18px",
+        h3_title_bg_color="#FFE082",  # 淡金色背景
+        h3_title_border_color="#FF6B6B",  # 红色左边框
+        h3_title_text_color="#D32F2F",  # 深红色文字
+        h3_title_font_size="16px",
+        code_bg_color="#FFF3E0",  # 温暖的橙色背景
+        code_border_color="#FFB74D",
+        meta_text_color="#8D6E63",
+        meta_font_size="12px",
+        source_text_color="#A1887F",
+        source_font_size="12px",
+    ),
+    "tech": StyleConfig(
+        name="科技产品介绍色彩系",
+        header_bg_color="#1565C0",  # 科技蓝
+        header_text_color="#FFFFFF",
+        header_font_size="20px",
+        card_bg_color="#E3F2FD",  # 淡蓝色背景
+        card_border_color="#42A5F5",  # 蓝色边框
+        card_text_color="#0D47A1",  # 深蓝色文字
+        h2_h3_card_bg_color="rgba(66, 165, 245, 0.2)",  # 淡蓝色背景
+        h2_h3_card_border_color="#42A5F5",  # 蓝色边框
+        h2_title_line_color="#1565C0",  # 深蓝色横线
+        h2_title_text_color="#0D47A1",  # 深蓝色标题
+        h2_title_font_size="18px",
+        h3_title_bg_color="#BBDEFB",  # 淡蓝色背景
+        h3_title_border_color="#1565C0",  # 深蓝色左边框
+        h3_title_text_color="#0D47A1",  # 深蓝色文字
+        h3_title_font_size="16px",
+        code_bg_color="#E1F5FE",  # 青色背景
+        code_border_color="#26C6DA",
+        meta_text_color="#546E7A",
+        meta_font_size="12px",
+        source_text_color="#78909C",
+        source_font_size="12px",
+    ),
+    "announcement": StyleConfig(
+        name="重大事情告知色彩系",
+        header_bg_color="#D32F2F",  # 警示红色
+        header_text_color="#FFFFFF",
+        header_font_size="22px",
+        card_bg_color="#FFF3E0",  # 淡橙色背景
+        card_border_color="#FF5722",  # 深橙色边框
+        card_text_color="#BF360C",  # 深橙色文字
+        h2_h3_card_bg_color="rgba(255, 152, 0, 0.25)",  # 淡橙色背景
+        h2_h3_card_border_color="#FF5722",  # 橙色边框
+        h2_title_line_color="#D32F2F",  # 红色横线
+        h2_title_text_color="#BF360C",  # 深橙色标题
+        h2_title_font_size="20px",
+        h3_title_bg_color="#FFE0B2",  # 淡橙色背景
+        h3_title_border_color="#D32F2F",  # 红色左边框
+        h3_title_text_color="#BF360C",  # 深橙色文字
+        h3_title_font_size="17px",
+        code_bg_color="#FFEBEE",  # 淡红色背景
+        code_border_color="#EF5350",
+        meta_text_color="#8D6E63",
+        meta_font_size="12px",
+        source_text_color="#A1887F",
+        source_font_size="12px",
+    ),
 }
 
 
@@ -140,8 +230,14 @@ class MarkdownParser:
 class CodeBlockFormatter:
     """代码块格式化器 - 使用 <br> + &nbsp; 方法保留缩进，支持语法高亮"""
     
-    @staticmethod
-    def format_code_block(code: str, language: str = "") -> str:
+    def __init__(self, style_config: Optional[StyleConfig] = None):
+        """
+        Args:
+            style_config: 样式配置（可选）
+        """
+        self.style_config = style_config
+    
+    def format_code_block(self, code: str, language: str = "") -> str:
         """
         将代码块转换为微信公众号兼容格式
         
@@ -204,24 +300,25 @@ class CodeBlockFormatter:
                 except (ImportError, Exception) as e:
                     # 如果导入失败或高亮失败，使用原来的方法
                     print(f"Warning: Syntax highlighting failed: {e}")
-                    code_html = CodeBlockFormatter._format_plain_code(code, lines, min_indent)
+                    code_html = self._format_plain_code(code, lines, min_indent)
             else:
                 # 如果没有语法高亮，使用原来的方法
-                code_html = CodeBlockFormatter._format_plain_code(code, lines, min_indent)
+                code_html = self._format_plain_code(code, lines, min_indent)
         except ImportError:
             # 如果没有安装 Pygments，使用原来的方法
-            code_html = CodeBlockFormatter._format_plain_code(code, lines, min_indent)
+            code_html = self._format_plain_code(code, lines, min_indent)
         except Exception as e:
             # 如果高亮失败，回退到原来的方法
             print(f"Warning: Syntax highlighting failed for {language}: {e}")
-            code_html = CodeBlockFormatter._format_plain_code(code, lines, min_indent)
+            code_html = self._format_plain_code(code, lines, min_indent)
         
-        # 代码块样式：支持横向滚动
-        return f"""<p style="font-family:monospace;background:#F4F4F4;border:1px solid #E0E0E0;border-radius:8px;padding:10px;white-space:pre;overflow-x:auto;line-height:1.6;margin:0;word-wrap:normal;">
+        # 代码块样式：支持横向滚动，使用主题配置的颜色
+        code_bg_color = self.style_config.code_bg_color if self.style_config else "#F4F4F4"
+        code_border_color = self.style_config.code_border_color if self.style_config else "#E0E0E0"
+        return f"""<p style="font-family:monospace;background:{code_bg_color};border:1px solid {code_border_color};border-radius:8px;padding:10px;white-space:pre;overflow-x:auto;line-height:1.6;margin:0;word-wrap:normal;">
 {code_html}</p><br>"""
     
-    @staticmethod
-    def _format_plain_code(code: str, lines: List[str], min_indent: int) -> str:
+    def _format_plain_code(self, code: str, lines: List[str], min_indent: int) -> str:
         """格式化纯文本代码（无语法高亮）"""
         formatted_lines = []
         for line in lines:
@@ -901,7 +998,7 @@ class WeChatHTMLConverter:
         
         self.style_config = STYLES[style]
         self.image_processor = ImageProcessor(base_dir)
-        self.code_formatter = CodeBlockFormatter()
+        self.code_formatter = CodeBlockFormatter(style_config=self.style_config)
         # FormulaProcessor 需要实例化，以便管理临时文件
         self.formula_processor = FormulaProcessor()
         # MermaidProcessor 需要实例化，以便管理临时文件
@@ -1181,9 +1278,9 @@ class WeChatHTMLConverter:
                     card_content.append("<br>")
             
             # 将内容包裹在卡片中（使用div而不是p，避免嵌套问题）
-            # 使用主题背景色，80%透明度
+            # 使用主题背景色
             if card_content:
-                card_html = f'<div style="background-color:rgba(250, 250, 250, 0.4);border:1px solid #E8E8E8;border-radius:8px;padding:12px 14px;margin:10px 0;line-height:1.9;">{"".join(card_content)}</div>'
+                card_html = f'<div style="background-color:{self.style_config.h2_h3_card_bg_color};border:1px solid {self.style_config.h2_h3_card_border_color};border-radius:8px;padding:12px 14px;margin:10px 0;line-height:1.9;">{"".join(card_content)}</div>'
                 html_parts.append(card_html)
         else:
             # 其他分块（如卷首语），正常输出内容
@@ -1220,13 +1317,13 @@ class WeChatHTMLConverter:
             return ''
         elif level == 2:
             # H2 使用粗横线中间为标题的格式
-            return f'<div style="text-align:center;margin:20px 0;"><hr style="border:none;border-top:2px solid #333;margin:0;width:100%;"><span style="background:#FFFFFF;padding:0 15px;position:relative;top:-12px;font-weight:bold;font-size:18px;">{self._convert_inline_markdown(text)}</span></div>'
+            return f'<div style="text-align:center;margin:20px 0;"><hr style="border:none;border-top:2px solid {self.style_config.h2_title_line_color};margin:0;width:100%;"><span style="background:{self.style_config.card_bg_color};padding:0 15px;position:relative;top:-12px;font-weight:bold;font-size:{self.style_config.h2_title_font_size};color:{self.style_config.h2_title_text_color};">{self._convert_inline_markdown(text)}</span></div>'
         elif level == 3:
             # H3 使用卡片式样式（作为 H2 的子标题）
-            return f'<p style="background-color:#F5F5F5;border-left:4px solid #3C3C3C;padding:8px 12px;margin:15px 0;border-radius:4px;"><span style="font-weight:bold;font-size:16px;color:#333333;">{self._convert_inline_markdown(text)}</span></p>'
+            return f'<p style="background-color:{self.style_config.h3_title_bg_color};border-left:4px solid {self.style_config.h3_title_border_color};padding:8px 12px;margin:15px 0;border-radius:4px;"><span style="font-weight:bold;font-size:{self.style_config.h3_title_font_size};color:{self.style_config.h3_title_text_color};">{self._convert_inline_markdown(text)}</span></p>'
         else:
             # H4+ 使用加粗样式
-            return f'<span style="font-weight:bold;">{self._convert_inline_markdown(text)}</span><br>'
+            return f'<span style="font-weight:bold;color:{self.style_config.card_text_color};">{self._convert_inline_markdown(text)}</span><br>'
     
     def _convert_paragraph(self, text: str) -> str:
         """转换段落"""
