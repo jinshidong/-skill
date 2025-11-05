@@ -5,8 +5,11 @@
 - ✅ 支持 Markdown Front Matter（YAML 格式）解析
 - ✅ 代码块缩进准确识别（使用 `<br>` + `&nbsp;` 方法）
 - ✅ 图片自动转换为 base64 嵌入（支持本地路径和网络URL）
-- ✅ 学术灰风格模板（默认）
+- ✅ 多种主题风格（学术灰、节日、科技、公告）
 - ✅ 可扩展的风格配置系统
+- ✅ 支持列表（有序/无序，支持嵌套）
+- ✅ 支持表格（支持对齐方式：左、中、右）
+- ✅ 支持链接（支持带标题的链接）
 - ✅ 微信公众号兼容的 HTML 标签（仅使用白名单标签）
 
 ## 安装依赖
@@ -38,8 +41,11 @@ python3 md2wechat.py 2020-05-22-blog-post-13.md
 # 指定输出文件
 python3 md2wechat.py 2020-05-22-blog-post-13.md -o output.html
 
-# 使用指定风格（当前仅支持 academic_gray）
-python3 md2wechat.py 2020-05-22-blog-post-13.md -s academic_gray
+# 使用指定风格
+python3 md2wechat.py 2020-05-22-blog-post-13.md -s academic_gray  # 学术灰风格（默认）
+python3 md2wechat.py 2020-05-22-blog-post-13.md -s festival      # 节日快乐色彩系
+python3 md2wechat.py 2020-05-22-blog-post-13.md -s tech          # 科技产品介绍色彩系
+python3 md2wechat.py 2020-05-22-blog-post-13.md -s announcement # 重大事情告知色彩系
 ```
 
 ## 支持的 Markdown 语法
@@ -124,29 +130,100 @@ $$
 - ✅ 不会被微信清洗
 - ✅ 图片以 base64 嵌入，无需外部依赖
 
+### 列表
+
+支持有序列表和无序列表，并支持嵌套：
+
+**无序列表**：使用 `-`、`*` 或 `+` 开头
+
+```markdown
+- 第一项
+- 第二项
+  - 嵌套项1
+  - 嵌套项2
+- 第三项
+```
+
+**有序列表**：使用数字和点开头
+
+```markdown
+1. 第一步
+2. 第二步
+   1. 子步骤1
+   2. 子步骤2
+3. 第三步
+```
+
+列表会自动转换为 HTML 的 `<ul>` 或 `<ol>` 标签，嵌套列表也会正确显示。
+
+### 表格
+
+支持 Markdown 表格语法，包括对齐方式：
+
+```markdown
+| 列1 | 列2 | 列3 |
+|:---|:---:|---:|
+| 左对齐 | 居中 | 右对齐 |
+| 数据1 | 数据2 | 数据3 |
+```
+
+对齐方式说明：
+- `:---` 或 `:---:` - 左对齐
+- `:---:` - 居中对齐
+- `---:` - 右对齐
+
+**注意**：由于微信公众号不支持 `<table>` 标签，表格使用 `<span>` 和 `<p>` 标签配合内联样式模拟，确保在微信中正常显示。
+
+### 链接
+
+支持标准 Markdown 链接语法：
+
+**基本链接**：
+```markdown
+[链接文本](https://www.example.com)
+```
+
+**带标题的链接**：
+```markdown
+[链接文本](https://www.example.com "链接标题")
+```
+
+链接会自动转换为 HTML 的 `<a>` 标签，并添加微信兼容的样式（蓝色、下划线）。
+
+**注意**：
+- 链接可以在段落、列表、表格等任何地方使用
+- 链接文本可以包含其他内联格式（粗体、斜体等）
+- URL 中的特殊字符会自动转义
+
 ### 其他语法
 
 - **粗体**：`**粗体文本**` 或 `__粗体文本__`
 - *斜体*：`*斜体文本*` 或 `_斜体文本_`
 - `行内代码`：使用反引号包裹
-- [链接](url)：`[链接文本](URL)`
 
 ## 风格配置
 
 当前支持以下风格：
 
 - `academic_gray`（默认）：学术灰风格，适合技术/科研文章
+- `festival`：节日快乐色彩系，适合节日祝福和庆祝内容
+- `tech`：科技产品介绍色彩系，适合产品介绍和科技文章
+- `announcement`：重大事情告知色彩系，适合重要通知和公告
 
 ### 添加新风格
 
-在 `md2wechat.py` 中的 `STYLES` 字典中添加新的 `StyleConfig`：
+在 `src/md2wechat.py` 中的 `STYLES` 字典中添加新的 `StyleConfig`：
 
 ```python
 STYLES = {
     "academic_gray": StyleConfig(...),
+    "festival": StyleConfig(...),
+    "tech": StyleConfig(...),
+    "announcement": StyleConfig(...),
     "your_style": StyleConfig(
         name="你的风格名称",
         header_bg_color="#...",
+        card_bg_color="#...",
         # ... 其他配置
     ),
 }
@@ -184,8 +261,10 @@ STYLES = {
 ### HTML 标签限制
 
 根据微信公众平台限制，仅使用以下标签：
-- `<p>`, `<span>`, `<img>`, `<br>`
+- `<p>`, `<span>`, `<img>`, `<br>`, `<div>`
 - `<strong>`, `<em>`
+- `<ul>`, `<ol>`, `<li>`（列表）
+- `<a>`（链接）
 - 内联样式（`style` 属性）
 
 ## 常见问题

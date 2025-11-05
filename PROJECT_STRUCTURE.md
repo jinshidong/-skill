@@ -18,8 +18,10 @@ MD2WeChat/
 │   └── type.md                # 微信支持的 HTML 标签说明
 │
 ├── examples/                  # 示例文件
-│   ├── 2020-05-22-blog-post-13.md    # 示例 Markdown
+│   ├── 2020-05-22-blog-post-13.md    # 示例 Markdown（包含各种元素）
 │   ├── 2020-05-22-blog-post-13.html  # 示例输出 HTML
+│   ├── 2025-11-05-md2wechat-intro.md # 项目介绍文档
+│   ├── 2025-11-05-md2wechat-intro.html # 项目介绍 HTML
 │   └── images/                # 示例图片
 │
 └── tests/                     # 测试目录（预留）
@@ -41,11 +43,18 @@ MD2WeChat/
 
 - **md2wechat.py**: 
   - `WeChatHTMLConverter` 类：主转换器
+    - 支持多种主题风格（学术灰、节日、科技、公告）
+    - 支持列表解析和渲染（有序/无序、嵌套）
+    - 支持表格解析和渲染（对齐方式）
+    - 支持链接处理（带标题）
   - `MarkdownParser` 类：Markdown 解析器
-  - `CodeBlockFormatter` 类：代码块格式化
-  - `ImageProcessor` 类：图片处理
-  - `FormulaProcessor` 类：公式处理
-  - `MermaidProcessor` 类：Mermaid 图表处理
+    - Front matter 解析
+    - 标题、段落、代码块、图片、公式、Mermaid、列表、表格解析
+  - `CodeBlockFormatter` 类：代码块格式化（保留缩进、语法高亮）
+  - `ImageProcessor` 类：图片处理（Base64 嵌入）
+  - `FormulaProcessor` 类：公式处理（CodeCogs/本地渲染）
+  - `MermaidProcessor` 类：Mermaid 图表处理（PNG 转换）
+  - `StyleConfig` 数据类：主题样式配置
   - `main()` 函数：命令行入口
 
 - **inline_formatter.py**: 
@@ -62,8 +71,10 @@ MD2WeChat/
 
 示例文件，用于测试和演示：
 
-- **2020-05-22-blog-post-13.md**: 包含各种 Markdown 元素的示例
+- **2020-05-22-blog-post-13.md**: 包含各种 Markdown 元素的示例（代码块、公式、Mermaid、图片等）
 - **2020-05-22-blog-post-13.html**: 对应的输出 HTML
+- **2025-11-05-md2wechat-intro.md**: 项目介绍文档，展示工具功能和使用方法
+- **2025-11-05-md2wechat-intro.html**: 项目介绍 HTML 输出
 - **images/**: 示例图片资源
 
 ## 依赖关系

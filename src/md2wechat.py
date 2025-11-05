@@ -1197,6 +1197,55 @@ class WeChatHTMLConverter:
                 i += 1
                 continue
             
+            # 列表项（无序列表：- * +，有序列表：数字.）
+            list_match = re.match(r'^(\s*)([-*+]|\d+\.)\s+(.+)$', line)
+            if list_match:
+                flush_para_buffer(parabuf)
+                indent = len(list_match.group(1))
+                marker = list_match.group(2)
+                item_text = list_match.group(3)
+                is_ordered = marker not in ['-', '*', '+']
+                (cur['items'] if cur else preface).append(('list_item', item_text, indent, is_ordered))
+                i += 1
+                continue
+            
+            # 表格行（包含 | 分隔符）
+            if '|' in line and line.strip().startswith('|') and line.strip().endswith('|'):
+                stripped_line = line.strip()
+                # 检查是否是表格分隔行：每个单元格只包含 -、:、空格，且不包含字母数字
+                cells = [cell.strip() for cell in stripped_line.split('|')[1:-1]]
+                is_separator = True
+                if not cells:
+                    is_separator = False
+                else:
+                    for cell in cells:
+                        # 单元格只包含 -、:、空格，且不包含字母数字，且至少包含一个 -
+                        if not re.match(r'^[\s\-:]+$', cell) or re.search(r'[a-zA-Z0-9]', cell) or '-' not in cell:
+                            is_separator = False
+                            break
+                
+                if is_separator:
+                    # 表格分隔行，解析对齐方式
+                    alignments = []
+                    for cell in cells:
+                        cell = cell.strip()
+                        if cell.startswith(':') and cell.endswith(':'):
+                            alignments.append('center')
+                        elif cell.endswith(':'):
+                            alignments.append('right')
+                        else:
+                            alignments.append('left')
+                    flush_para_buffer(parabuf)
+                    (cur['items'] if cur else preface).append(('table_separator', alignments))
+                    i += 1
+                    continue
+                else:
+                    # 表格数据行
+                    flush_para_buffer(parabuf)
+                    (cur['items'] if cur else preface).append(('table_row', cells))
+                    i += 1
+                    continue
+            
             # 空行
             if not line.strip():
                 parabuf.append('')
@@ -1213,6 +1262,80 @@ class WeChatHTMLConverter:
             (cur['items'] if cur else preface).append(('code', '\n'.join(buf_code), code_lang))
         if in_formula:
             (cur['items'] if cur else preface).append(('formula', '\n'.join(buf_formula)))
+        
+        # 处理列表和表格的分组
+        def _group_list_and_table_items(items):
+            """将连续的列表项和表格行分组"""
+            grouped = []
+            i = 0
+            while i < len(items):
+                item_type, *item_data = items[i]
+                
+                if item_type == 'list_item':
+                    # 收集连续的列表项
+                    current_list = []
+                    list_indent = item_data[1] if len(item_data) > 1 else 0
+                    list_ordered = item_data[2] if len(item_data) > 2 else False
+                    
+                    while i < len(items):
+                        item_type, *item_data = items[i]
+                        if item_type != 'list_item':
+                            break
+                        indent = item_data[1] if len(item_data) > 1 else 0
+                        is_ordered = item_data[2] if len(item_data) > 2 else False
+                        
+                        # 如果是新的列表（不同的缩进或类型），结束当前列表
+                        if indent < list_indent or (indent == list_indent and is_ordered != list_ordered):
+                            break
+                        
+                        current_list.append((item_data[0], indent))
+                        i += 1
+                    
+                    # 递归处理嵌套列表（传入基础缩进级别）
+                    nested_list = self._build_list_structure(current_list, list_indent, list_ordered)
+                    grouped.append(('list', nested_list, list_ordered))
+                    continue
+                
+                elif item_type == 'table_row' or item_type == 'table_separator':
+                    # 收集表格行
+                    table_rows = []
+                    table_alignments = ['left']  # 默认对齐
+                    is_header = True  # 第一行默认为表头
+                    
+                    # 收集表格行，处理分隔行
+                    j = i
+                    while j < len(items):
+                        item_type_check, *item_data_check = items[j]
+                        if item_type_check == 'table_separator':
+                            # 分隔行用于确定对齐方式，不添加到 table_rows
+                            table_alignments = item_data_check[0] if len(item_data_check) > 0 else ['left']
+                            j += 1
+                            continue
+                        elif item_type_check == 'table_row':
+                            table_rows.append((item_data_check[0] if len(item_data_check) > 0 else [], is_header))
+                            is_header = False  # 后续行为数据行
+                            j += 1
+                        else:
+                            break
+                    
+                    if table_rows:
+                        grouped.append(('table', table_rows, table_alignments))
+                    i = j
+                    continue
+                
+                else:
+                    grouped.append(items[i])
+                    i += 1
+            
+            return grouped
+        
+        # 对每个 section 的 items 进行分组
+        for sec in sections:
+            sec['items'] = _group_list_and_table_items(sec['items'])
+        if preface:
+            preface = _group_list_and_table_items(preface)
+        if cur:
+            cur['items'] = _group_list_and_table_items(cur['items'])
         
         if cur:
             sections.append(cur)
@@ -1274,6 +1397,12 @@ class WeChatHTMLConverter:
                     card_content.append(formula_html)
                 elif item_type == "mermaid":
                     card_content.append(self.mermaid_processor.format_mermaid(item_data[0]))
+                elif item_type == "list":
+                    list_structure, is_ordered = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else False
+                    card_content.append(self._convert_list(list_structure, is_ordered))
+                elif item_type == "table":
+                    table_rows, alignments = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else ['left']
+                    card_content.append(self._convert_table(table_rows, alignments))
                 elif item_type == "empty":
                     card_content.append("<br>")
             
@@ -1304,6 +1433,12 @@ class WeChatHTMLConverter:
                     html_parts.append(self.formula_processor.format_block_formula(item_data[0]))
                 elif item_type == "mermaid":
                     html_parts.append(self.mermaid_processor.format_mermaid(item_data[0]))
+                elif item_type == "list":
+                    list_structure, is_ordered = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else False
+                    html_parts.append(self._convert_list(list_structure, is_ordered))
+                elif item_type == "table":
+                    table_rows, alignments = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else ['left']
+                    html_parts.append(self._convert_table(table_rows, alignments))
                 elif item_type == "empty":
                     html_parts.append("<br>")
         
@@ -1335,6 +1470,155 @@ class WeChatHTMLConverter:
         
         # 添加段落结束标记
         return f"{html_text}<br><br>"
+    
+    def _build_list_structure(self, items: List[Tuple[str, int]], base_indent: int, is_ordered: bool) -> List:
+        """
+        构建嵌套列表结构
+        
+        Args:
+            items: [(text, indent), ...] 列表项和缩进
+            base_indent: 基础缩进级别
+            is_ordered: 是否有序列表
+        
+        Returns:
+            嵌套列表结构 [(text, indent, nested_list?), ...]
+        """
+        if not items:
+            return []
+        
+        result = []
+        i = 0
+        
+        while i < len(items):
+            text, indent = items[i]
+            
+            # 如果缩进小于基础缩进，说明是上一级列表的项，应该返回
+            if indent < base_indent:
+                break
+            
+            # 如果缩进等于基础缩进，这是当前级别的项
+            if indent == base_indent:
+                # 检查后面是否有嵌套项（缩进更大的项）
+                nested_items = []
+                j = i + 1
+                while j < len(items) and items[j][1] > indent:
+                    nested_items.append(items[j])
+                    j += 1
+                
+                if nested_items:
+                    # 有嵌套列表，递归构建
+                    nested_list = self._build_list_structure(nested_items, indent + 2, is_ordered)
+                    result.append((text, indent, nested_list))
+                    i = j
+                else:
+                    # 普通列表项
+                    result.append((text, indent))
+                    i += 1
+            else:
+                # 缩进大于基础缩进，但不在处理范围内（应该被前面的递归处理）
+                i += 1
+        
+        return result
+    
+    def _convert_list(self, list_structure: List, is_ordered: bool) -> str:
+        """
+        将列表结构转换为 HTML
+        
+        Args:
+            list_structure: 列表结构（由 _build_list_structure 生成）
+            is_ordered: 是否有序列表
+        
+        Returns:
+            HTML 字符串
+        """
+        if not list_structure:
+            return ""
+        
+        tag = "ol" if is_ordered else "ul"
+        html_items = []
+        
+        for item in list_structure:
+            if len(item) == 3:
+                # 有嵌套列表
+                text, indent, nested_list = item
+                item_html = f"<li>{self._convert_inline_markdown(text)}"
+                nested_html = self._convert_list(nested_list, is_ordered)
+                item_html += nested_html + "</li>"
+                html_items.append(item_html)
+            else:
+                # 普通列表项
+                text, indent = item
+                item_html = f"<li>{self._convert_inline_markdown(text)}</li>"
+                html_items.append(item_html)
+        
+        list_html = f"<{tag} style=\"margin:10px 0;padding-left:20px;line-height:1.8;\">" + "".join(html_items) + f"</{tag}>"
+        return list_html + "<br>"
+    
+    def _convert_table(self, table_rows: List[Tuple], alignments: List[str]) -> str:
+        """
+        将表格转换为 HTML（使用微信兼容的方式，不使用 table 标签）
+        
+        Args:
+            table_rows: [(cells, is_header), ...] 表格行
+            alignments: 每列的对齐方式
+        
+        Returns:
+            HTML 字符串
+        """
+        if not table_rows:
+            return ""
+        
+        html_parts = []
+        
+        # 计算列宽（简单平均分配）
+        num_cols = max(len(row[0]) for row in table_rows) if table_rows else 0
+        if num_cols == 0:
+            return ""
+        
+        # 确保对齐方式数量匹配列数
+        while len(alignments) < num_cols:
+            alignments.append('left')
+        
+        # 表头样式
+        header_style = f"background-color:{self.style_config.h3_title_bg_color};font-weight:bold;"
+        cell_style_base = f"border:1px solid {self.style_config.h2_h3_card_border_color};padding:8px 12px;"
+        
+        # 构建表格行
+        for row_idx, (cells, is_header) in enumerate(table_rows):
+            row_html_parts = []
+            
+            # 确保单元格数量匹配
+            while len(cells) < num_cols:
+                cells.append("")
+            
+            for col_idx, cell_text in enumerate(cells[:num_cols]):
+                alignment = alignments[col_idx] if col_idx < len(alignments) else 'left'
+                text_align = f"text-align:{alignment};"
+                
+                # 单元格样式
+                if is_header:
+                    cell_style = f"{cell_style_base}{header_style}{text_align}"
+                else:
+                    cell_style = f"{cell_style_base}{text_align}"
+                
+                # 转换单元格内容
+                cell_content = self._convert_inline_markdown(cell_text)
+                
+                # 使用 span 标签模拟表格单元格（微信不支持 table 标签）
+                # 注意：使用 flex 或 table-cell 可能不被微信支持，所以使用 inline-block
+                # 计算每个单元格的宽度（考虑边框）
+                cell_width = f"{100/num_cols:.2f}%"
+                row_html_parts.append(
+                    f'<span style="{cell_style}display:inline-block;width:{cell_width};vertical-align:top;box-sizing:border-box;">{cell_content}</span>'
+                )
+            
+            # 每行用 p 标签包裹，并添加换行
+            row_html = f'<p style="margin:0;padding:0;line-height:1.6;">{"".join(row_html_parts)}</p>'
+            html_parts.append(row_html)
+        
+        # 用 div 包裹整个表格，添加边框和间距
+        table_html = f'<div style="border:1px solid {self.style_config.h2_h3_card_border_color};border-radius:4px;margin:15px 0;overflow:hidden;">{"".join(html_parts)}</div>'
+        return table_html + "<br>"
     
     def _convert_inline_markdown(self, text: str) -> str:
         """转换内联 Markdown（粗体、代码、链接、行内公式等）"""
@@ -1379,8 +1663,55 @@ class WeChatHTMLConverter:
         # 处理行内代码 `code`
         text = re.sub(r'`([^`]+)`', r'<span style="font-family:monospace;">\1</span>', text)
         
-        # 处理链接 [text](url)
-        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
+        # 处理链接 [text](url) 或 [text](url "title")
+        def replace_link(match):
+            link_text = match.group(1)
+            url = match.group(2).strip()
+            title = match.group(3) if len(match.groups()) > 2 and match.group(3) else None
+            
+            # URL 转义：确保 URL 中的特殊字符被正确编码
+            # 但保持已有的编码不变
+            import urllib.parse
+            # 检查 URL 是否已经是编码过的（简单判断）
+            if '%' in url and any(c in url for c in ['%20', '%2F', '%3A', '%3F']):
+                # 可能已经编码过，直接使用
+                escaped_url = url
+            else:
+                # 对 URL 进行编码，但保留协议部分
+                try:
+                    parsed = urllib.parse.urlparse(url)
+                    if parsed.scheme:
+                        # 有协议，只编码路径、查询字符串等部分
+                        path = urllib.parse.quote(parsed.path, safe='/')
+                        query = urllib.parse.quote(parsed.query, safe='&=')
+                        fragment = urllib.parse.quote(parsed.fragment, safe='')
+                        escaped_url = f"{parsed.scheme}://{parsed.netloc}{path}"
+                        if query:
+                            escaped_url += f"?{query}"
+                        if fragment:
+                            escaped_url += f"#{fragment}"
+                    else:
+                        # 无协议，直接编码（但保留常见字符）
+                        escaped_url = urllib.parse.quote(url, safe='/:?=&')
+                except:
+                    # 如果解析失败，直接转义特殊字符
+                    escaped_url = url.replace('&', '&amp;').replace('"', '&quot;').replace("'", '&#39;')
+            
+            # 构建链接 HTML（link_text 已经在前面转义过 HTML 特殊字符）
+            # 添加微信兼容的样式：蓝色链接，下划线
+            link_style = 'color:#576b95;text-decoration:underline;'
+            if title:
+                # 转义标题中的引号
+                escaped_title = title.replace('"', '&quot;').replace("'", '&#39;')
+                return f'<a href="{escaped_url}" title="{escaped_title}" style="{link_style}">{link_text}</a>'
+            else:
+                return f'<a href="{escaped_url}" style="{link_style}">{link_text}</a>'
+        
+        # 匹配 [text](url "title") 或 [text](url)
+        # 先匹配带标题的（更具体，使用非贪婪匹配）
+        text = re.sub(r'\[([^\]]+)\]\(([^)]+?)\s+"([^"]+)"\)', replace_link, text)
+        # 再匹配不带标题的
+        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', replace_link, text)
         
         # 第四步：恢复公式占位符（在转义后恢复，这样公式 HTML 不会被转义）
         for placeholder, formula_html in formula_placeholders.items():
