@@ -322,14 +322,61 @@ class CodeBlockFormatter:
             code_html = self._add_line_numbers(code_html, lines, line_number_width)
         
         # 代码块样式：支持横向滚动，使用主题配置的颜色
-        # 公众号对CSS支持有限，使用更兼容的滚动方式
+        # 按照微信公众号的正确做法：使用<p>标签 + white-space:pre + overflow-x:scroll
         code_bg_color = self.style_config.code_bg_color if self.style_config else "#F4F4F4"
         code_border_color = self.style_config.code_border_color if self.style_config else "#E0E0E0"
-        # 使用外层div包裹，内层使用pre标签或p标签，确保滚动在公众号中也能工作
-        # 方案：使用div包裹，设置overflow-x:scroll（而不是auto），并添加触摸滚动支持
-        return f"""<div style="background:{code_bg_color};border:1px solid {code_border_color};border-radius:8px;padding:10px;margin:10px 0;overflow-x:scroll;-webkit-overflow-scrolling:touch;overflow-y:hidden;">
-<p style="font-family:monospace;white-space:pre;line-height:1.6;margin:0;word-wrap:normal;min-width:100%;display:inline-block;">
-{code_html}</p></div><br>"""
+        # 关键：使用<p>标签而不是pre/code，white-space:pre保留格式但不自动换行
+        # overflow-x:scroll 支持横向滚动，-webkit-overflow-scrolling:touch 支持触摸滚动
+        # 每行代码已用span包裹并设置white-space:nowrap，双重保障防止换行
+        return f"""<p style="background-color:{code_bg_color};border:1px solid {code_border_color};border-radius:8px;font-family:monospace;white-space:pre;overflow-x:scroll;-webkit-overflow-scrolling:touch;padding:10px;line-height:1.6;margin:10px 0;word-wrap:normal;word-break:keep-all;">
+{code_html}</p><br>"""
+    
+    @staticmethod
+    def _insert_zero_width_chars(text: str) -> str:
+        """
+        在文本字符之间插入零宽不连字（U+200C），破坏微信的自动分词逻辑
+        只在纯文本字符之间插入，不影响HTML标签和实体
+        """
+        ZERO_WIDTH_NON_JOINER = '\u200C'  # 零宽不连字
+        
+        result = []
+        i = 0
+        in_tag = False
+        in_entity = False
+        
+        while i < len(text):
+            char = text[i]
+            
+            # 检测HTML标签
+            if char == '<':
+                in_tag = True
+                result.append(char)
+            elif char == '>':
+                in_tag = False
+                result.append(char)
+            # 检测HTML实体（如 &nbsp; &amp; 等）
+            elif char == '&' and not in_tag:
+                in_entity = True
+                result.append(char)
+            elif char == ';' and in_entity:
+                in_entity = False
+                result.append(char)
+            else:
+                # 普通字符
+                result.append(char)
+                # 如果不在标签和实体中，且下一个字符也是普通字符，插入零宽字符
+                if not in_tag and not in_entity:
+                    # 检查下一个字符
+                    if i + 1 < len(text):
+                        next_char = text[i + 1]
+                        # 如果下一个字符不是 < > & 和空白字符，则插入零宽字符
+                        # 这样可以破坏微信的自动分词逻辑，防止换行
+                        if next_char not in ['<', '>', '&', ' ', '\t', '\n', '\r']:
+                            result.append(ZERO_WIDTH_NON_JOINER)
+            
+            i += 1
+        
+        return ''.join(result)
     
     def _format_plain_code(self, code: str, lines: List[str], min_indent: int) -> str:
         """格式化纯文本代码（无语法高亮）"""
@@ -363,9 +410,14 @@ class CodeBlockFormatter:
                               .replace("'", "&#39;")
                               .replace(" ", "&nbsp;"))  # 将所有空格转换为 &nbsp;
                 
+                # 在字符之间插入零宽字符，破坏微信的自动分词逻辑
+                escaped_line = self._insert_zero_width_chars(escaped_line)
+                
                 # 添加缩进（每个空格用 2 个 &nbsp;）
                 indent_html = "&nbsp;" * (relative_indent * 2)
-                formatted_lines.append(f"{indent_html}{escaped_line}<br>")
+                # 每行代码用span包裹并设置white-space:nowrap，强制不换行
+                # 配合外层p标签的white-space:pre和overflow-x:auto，双重保障防止换行
+                formatted_lines.append(f'<span style="white-space:nowrap;">{indent_html}{escaped_line}</span><br>')
         
         return "".join(formatted_lines)
     
@@ -423,12 +475,16 @@ class CodeBlockFormatter:
                     # 将高亮HTML中的空格转换为 &nbsp;（保留HTML标签）
                     part_with_spaces = replace_spaces_in_text(part)
                     
+                    # 在字符之间插入零宽字符，破坏微信的自动分词逻辑
+                    part_with_spaces = self._insert_zero_width_chars(part_with_spaces)
+                    
                     # 添加缩进（在每行的开始）
                     indent_html = "&nbsp;" * (relative_indent * 2)
-                    formatted_parts.append(f"{indent_html}{part_with_spaces}")
+                    # 每行代码用span包裹并设置white-space:nowrap，强制不换行
+                    formatted_parts.append(f'<span style="white-space:nowrap;">{indent_html}{part_with_spaces}</span>')
                 else:
-                    # 空行
-                    formatted_parts.append(part)
+                    # 空行也用span包裹，保持结构一致
+                    formatted_parts.append('<span style="white-space:nowrap;">&nbsp;</span>')
                 line_idx += 1
             else:
                 formatted_parts.append(part)
@@ -441,12 +497,16 @@ class CodeBlockFormatter:
     
     def _add_line_numbers(self, code_html: str, original_lines: List[str], line_number_width: int) -> str:
         """为代码 HTML 添加行号"""
-        # 行号宽度：根据总行数计算，最小宽度为 2em（适用于1-9行），每增加一位数增加约 0.6em
-        # 例如：1-9行：2em, 10-99行：2.6em, 100-999行：3.2em
+        # 行号宽度：根据总行数计算，增加宽度以确保两位数及以上不会挤下去
+        # 1-9行：3em, 10-99行：3.5em, 100-999行：4em, 1000+行：4.5em
         if line_number_width <= 1:
-            width = "2em"
+            width = "3em"  # 增加基础宽度
+        elif line_number_width == 2:
+            width = "3.5em"  # 两位数使用更宽的宽度
+        elif line_number_width == 3:
+            width = "4em"  # 三位数
         else:
-            width = f"{1.4 + (line_number_width - 1) * 0.6}em"
+            width = "4.5em"  # 四位数及以上
         
         # 行号样式：灰色、右对齐、固定宽度，不可选择
         line_number_style = f"display:inline-block;width:{width};text-align:right;padding-right:0.8em;color:#999;user-select:none;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;"
@@ -467,9 +527,14 @@ class CodeBlockFormatter:
         lines_with_numbers = []
         for idx, code_line in enumerate(code_lines):
             line_num = idx + 1
+            # 在行号数字之间插入零宽字符，破坏微信的自动分词逻辑
+            line_num_str = str(line_num)
+            line_num_with_zw = self._insert_zero_width_chars(line_num_str)
             # 添加行号（每行开头）
-            line_number_html = f'<span style="{line_number_style}">{line_num}</span>'
-            lines_with_numbers.append(f"{line_number_html}{code_line}<br>")
+            line_number_html = f'<span style="{line_number_style}">{line_num_with_zw}</span>'
+            # 将行号和代码行一起包裹在span中，设置white-space:nowrap强制不换行
+            # 确保整行（行号+代码）作为一个整体不换行
+            lines_with_numbers.append(f'<span style="white-space:nowrap;">{line_number_html}{code_line}</span><br>')
         
         return "".join(lines_with_numbers)
 
