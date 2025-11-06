@@ -25,6 +25,12 @@
 - ✅ 支持水平分割线（`---`, `***`, `___`）
 - ✅ 支持文字颜色和加粗组合（`**文字**{color:#ff0000}`、`[文字]{color:#ff0000}`）
 - ✅ 100% 微信兼容（仅使用白名单标签）
+- ✅ **自动发布功能**（基于 Playwright）
+  - 自动登录（持久化登录态）
+  - 自动填充标题和作者（从 Markdown front matter 提取）
+  - 智能编辑器查找（基于实际 DOM 结构）
+  - 自动插入 HTML 内容
+  - 支持定时发布
 
 ## 安装
 
@@ -169,7 +175,27 @@ MD2WeChat/
 
 ## 使用文档
 
-详细使用说明请参考 [docs/USAGE.md](docs/USAGE.md)
+- **Markdown 转换使用**：详细使用说明请参考 [docs/USAGE.md](docs/USAGE.md)
+- **自动发布功能**：详细发布指南请参考 [docs/PUBLISH_GUIDE.md](docs/PUBLISH_GUIDE.md)
+
+### 快速发布示例
+
+```bash
+# 1. 首次使用：设置登录（打开浏览器，手动登录）
+python publish_wechat.py --interactive
+
+# 2. 发布文章（自动填充标题、作者和正文）
+python publish_wechat.py article.md --style academic_gray
+
+# 3. 定时发布（使用配置文件）
+python schedule_publish.py --config publish_config.json
+```
+
+**发布功能特性**：
+- ✅ 自动从 Markdown 提取标题和作者，填充到编辑器
+- ✅ 智能查找编辑器（支持 uEditor/edui1 iframe）
+- ✅ 自动插入转换后的 HTML 内容
+- ✅ 支持多种风格模板
 
 ## 许可证
 

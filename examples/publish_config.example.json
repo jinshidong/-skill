@@ -1,0 +1,23 @@
+{
+  "tasks": [
+    {
+      "md_file": "examples/2020-05-22-blog-post-13.md",
+      "publish_time": "2024-12-25 10:00:00",
+      "style": "academic_gray",
+      "user_data_dir": "./tmp_profile",
+      "clear_editor": true,
+      "auto_publish": false,
+      "comment": "示例：圣诞节发布学术文章"
+    },
+    {
+      "md_file": "examples/2025-11-05-md2wechat-intro.md",
+      "publish_time": "2024-12-26 14:30:00",
+      "style": "tech",
+      "user_data_dir": "./tmp_profile",
+      "clear_editor": true,
+      "auto_publish": false,
+      "comment": "示例：技术产品介绍文章"
+    }
+  ]
+}
+

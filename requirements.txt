@@ -11,5 +11,9 @@ pygments>=2.7.0
 matplotlib>=3.3.0
 sympy>=1.7.0
 
+# Playwright (用于微信公众号发布)
+# 安装后需要运行: playwright install
+playwright>=1.40.0
+
 # 注意：Mermaid CLI 需要通过 npm 单独安装
 # npm install -g @mermaid-js/mermaid-cli
