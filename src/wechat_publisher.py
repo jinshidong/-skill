@@ -485,22 +485,61 @@ JS_SET_TITLE_AUTHOR = r'''
             }
         }
         
-        let result = {title: false, author: false, titleMethod: null, authorMethod: null};
+        let result = {title: false, author: false, titleMethod: null, authorMethod: null, titleValue: null, authorValue: null};
         
         if (titleEl && title) {
+            // 先清空现有内容
+            titleEl.value = '';
+            titleEl.textContent = '';
+            titleEl.innerText = '';
+            
+            // 设置新值
             titleEl.value = title;
+            if (titleEl.tagName === 'TEXTAREA') {
+                titleEl.textContent = title;
+            }
+            
+            // 触发多种事件确保更新
             titleEl.dispatchEvent(new Event('input', { bubbles: true }));
             titleEl.dispatchEvent(new Event('change', { bubbles: true }));
-            result.title = true;
+            titleEl.dispatchEvent(new Event('keyup', { bubbles: true }));
+            
+            // 对于React/Vue等框架，可能需要触发focus和blur
+            titleEl.focus();
+            titleEl.blur();
+            
+            // 验证值是否设置成功
+            const actualValue = titleEl.value || titleEl.textContent || titleEl.innerText || '';
+            result.title = actualValue.includes(title) || actualValue === title;
             result.titleMethod = titleMethod;
+            result.titleValue = actualValue;
+            result.titleExpected = title;
         }
         
         if (authorEl && author) {
+            // 先清空现有内容
+            authorEl.value = '';
+            authorEl.textContent = '';
+            authorEl.innerText = '';
+            
+            // 设置新值
             authorEl.value = author;
+            
+            // 触发多种事件确保更新
             authorEl.dispatchEvent(new Event('input', { bubbles: true }));
             authorEl.dispatchEvent(new Event('change', { bubbles: true }));
-            result.author = true;
+            authorEl.dispatchEvent(new Event('keyup', { bubbles: true }));
+            
+            // 对于React/Vue等框架，可能需要触发focus和blur
+            authorEl.focus();
+            authorEl.blur();
+            
+            // 验证值是否设置成功
+            const actualValue = authorEl.value || authorEl.textContent || authorEl.innerText || '';
+            result.author = actualValue.includes(author) || actualValue === author;
             result.authorMethod = authorMethod;
+            result.authorValue = actualValue;
+            result.authorExpected = author;
         }
         
         return result;
@@ -790,7 +829,11 @@ JS_FIND_PUBLISH_BUTTON = r'''
 
 # JavaScript 代码片段 - 设置定时发表（同步版本，支持日期选择）
 JS_SET_SCHEDULED_PUBLISH = r'''
-(function(enableScheduled, scheduledDate, scheduledTime, enableGroupNotify){
+(function(args){
+    const enableScheduled = args.enableScheduled || false;
+    const scheduledDate = args.scheduledDate || 'today';
+    const scheduledTime = args.scheduledTime || '';
+    const enableGroupNotify = args.enableGroupNotify || false;
     // enableScheduled: 是否启用定时发表
     // scheduledDate: 日期，格式 "YYYY-MM-DD" 或 "today" 或 "tomorrow"，如 "2024-12-25" 或 "today"
     // scheduledTime: 定时时间，格式 "HH:MM"，如 "20:30"
@@ -1831,12 +1874,104 @@ class WeChatPublisher:
             
             # 填充标题和作者（在主文档）
             if title or author:
+                logger.info(f"准备填充标题: '{title}', 作者: '{author}'")
                 title_author_result = self.page.evaluate(JS_SET_TITLE_AUTHOR, {
-                "title": title or "",
-                "author": author or ""
-            })
-                logger.info(f"填充标题和作者: {title_author_result}")
-                time.sleep(0.5)
+                    "title": title or "",
+                    "author": author or ""
+                })
+                logger.info(f"填充标题和作者结果: {title_author_result}")
+                
+                # 验证标题是否成功设置，如果失败则使用Playwright方法
+                if title:
+                    if not title_author_result.get('title'):
+                        logger.warning(f"⚠️ JavaScript方法可能未成功设置标题，期望: '{title}', 实际: '{title_author_result.get('titleValue', 'N/A')}'")
+                        logger.warning(f"   使用的方法: {title_author_result.get('titleMethod', 'N/A')}")
+                    
+                    # 无论JavaScript是否成功，都使用Playwright方法确保设置（更可靠）
+                    try:
+                        title_selectors = ['#js_title_main', '#title', 'textarea[name="title"]']
+                        for selector in title_selectors:
+                            try:
+                                title_el = self.page.locator(selector).first
+                                if title_el.is_visible(timeout=2000):
+                                    logger.info(f"使用Playwright设置标题: {selector}")
+                                    # 先清空
+                                    title_el.clear()
+                                    time.sleep(0.2)
+                                    # 填充标题
+                                    title_el.fill(title)
+                                    time.sleep(0.5)
+                                    # 触发键盘事件确保React/Vue框架识别
+                                    title_el.press('Tab')  # 触发blur事件
+                                    time.sleep(0.3)
+                                    # 验证
+                                    actual_value = title_el.input_value()
+                                    if actual_value == title or actual_value.strip() == title.strip():
+                                        logger.info(f"✅ Playwright成功设置标题: '{actual_value}'")
+                                        title_author_result['title'] = True
+                                        title_author_result['titleValue'] = actual_value
+                                        break
+                                    else:
+                                        logger.warning(f"⚠️ 标题值不匹配，期望: '{title}', 实际: '{actual_value}'")
+                            except Exception as e:
+                                logger.warning(f"使用Playwright设置标题时出错 ({selector}): {e}")
+                                continue
+                    except Exception as e:
+                        logger.warning(f"使用Playwright设置标题失败: {e}")
+                    
+                    # 最终验证：再次检查标题是否设置成功
+                    if title_author_result.get('title'):
+                        logger.info(f"✅ 标题设置成功: '{title_author_result.get('titleValue', title)}'")
+                    else:
+                        logger.error(f"❌ 标题设置失败，期望: '{title}'")
+                
+                # 验证作者是否成功设置，如果失败则使用Playwright方法
+                if author:
+                    if not title_author_result.get('author'):
+                        logger.warning(f"⚠️ JavaScript方法可能未成功设置作者，期望: '{author}', 实际: '{title_author_result.get('authorValue', 'N/A')}'")
+                        logger.warning(f"   使用的方法: {title_author_result.get('authorMethod', 'N/A')}")
+                    
+                    # 无论JavaScript是否成功，都使用Playwright方法确保设置（更可靠）
+                    try:
+                        author_selectors = ['#author', 'input[name="author"]']
+                        for selector in author_selectors:
+                            try:
+                                author_el = self.page.locator(selector).first
+                                if author_el.is_visible(timeout=2000):
+                                    logger.info(f"使用Playwright设置作者: {selector}")
+                                    # 先清空
+                                    author_el.clear()
+                                    time.sleep(0.2)
+                                    # 填充作者
+                                    author_el.fill(author)
+                                    time.sleep(0.5)
+                                    # 触发键盘事件确保React/Vue框架识别
+                                    author_el.press('Tab')  # 触发blur事件
+                                    time.sleep(0.3)
+                                    # 验证
+                                    actual_value = author_el.input_value()
+                                    if actual_value == author or actual_value.strip() == author.strip():
+                                        logger.info(f"✅ Playwright成功设置作者: '{actual_value}'")
+                                        title_author_result['author'] = True
+                                        title_author_result['authorValue'] = actual_value
+                                        break
+                                    else:
+                                        logger.warning(f"⚠️ 作者值不匹配，期望: '{author}', 实际: '{actual_value}'")
+                            except Exception as e:
+                                logger.warning(f"使用Playwright设置作者时出错 ({selector}): {e}")
+                                continue
+                    except Exception as e:
+                        logger.warning(f"使用Playwright设置作者失败: {e}")
+                    
+                    # 最终验证：再次检查作者是否设置成功
+                    if title_author_result.get('author'):
+                        logger.info(f"✅ 作者设置成功: '{title_author_result.get('authorValue', author)}'")
+                    else:
+                        logger.error(f"❌ 作者设置失败，期望: '{author}'")
+                
+                # 等待标题和作者设置完成，确保页面状态更新
+                logger.info("等待标题和作者设置完成...")
+                time.sleep(2)
             
             # 获取编辑器内容元素（可能是 mock-iframe-body 或 contenteditable）
             content_element = self.editor_content_element
@@ -2073,7 +2208,8 @@ class WeChatPublisher:
         auto_confirm: bool = False,
         scheduled_time: Optional[str] = None,
         scheduled_date: Optional[str] = None,
-        enable_group_notify: bool = False
+        enable_group_notify: bool = False,
+        title: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         发表文章
@@ -2083,6 +2219,7 @@ class WeChatPublisher:
             scheduled_time: 定时发表时间，格式 "HH:MM"，如 "20:30"。如果提供，会自动启用定时发表
             scheduled_date: 定时发表日期，格式 "YYYY-MM-DD" 或 "today" 或 "tomorrow"，如 "2024-12-25"。默认为 "today"
             enable_group_notify: 是否启用群发通知（默认 False）
+            title: 文章标题（用于错误检查和重新设置）
         
         Returns:
             操作结果字典
@@ -2091,6 +2228,78 @@ class WeChatPublisher:
             return {"ok": False, "error": "页面未初始化"}
         
         try:
+            # 先保存为草稿（在发表之前）
+            logger.info("步骤: 先保存为草稿...")
+            logger.info("等待20秒，确保页面完全加载...")
+            time.sleep(20)
+            logger.info("等待完成，开始查找'保存为草稿'按钮...")
+            try:
+                # 查找"保存为草稿"按钮（多种方法）
+                draft_selectors = [
+                    'text=保存为草稿',
+                    'text=保存草稿',
+                    'button:has-text("保存为草稿")',
+                    'button:has-text("保存草稿")',
+                    'a:has-text("保存为草稿")',
+                    'a:has-text("保存草稿")',
+                    '.btn_draft',
+                    '.btn_save',
+                    'button[class*="draft"]',
+                    'button[class*="save"]'
+                ]
+                
+                draft_clicked = False
+                for selector in draft_selectors:
+                    try:
+                        btn = self.page.locator(selector).first
+                        if btn.is_visible(timeout=2000):
+                            logger.info(f"✅ 找到'保存为草稿'按钮: {selector}")
+                            btn.click()
+                            logger.info("✅ 已点击'保存为草稿'按钮")
+                            draft_clicked = True
+                            time.sleep(1)  # 等待保存完成
+                            break
+                    except:
+                        continue
+                
+                # 如果Playwright方法失败，使用JavaScript方法
+                if not draft_clicked:
+                    js_find_draft = r'''
+                    (function(){
+                        // 查找"保存为草稿"按钮
+                        const buttons = document.querySelectorAll('button, a, [role="button"]');
+                        for (const btn of buttons) {
+                            const text = btn.textContent.trim();
+                            if (text === '保存为草稿' || 
+                                text === '保存草稿' || 
+                                text.includes('保存为草稿') || 
+                                text.includes('保存草稿')) {
+                                const style = window.getComputedStyle(btn);
+                                if (btn.offsetWidth > 0 && btn.offsetHeight > 0 && style.display !== 'none') {
+                                    btn.click();
+                                    return {found: true, text: text};
+                                }
+                            }
+                        }
+                        return {found: false};
+                    })();
+                    '''
+                    try:
+                        result = self.page.evaluate(js_find_draft)
+                        if result.get('found'):
+                            logger.info(f"✅ 使用JavaScript点击'保存为草稿'按钮: {result.get('text')}")
+                            draft_clicked = True
+                            time.sleep(1)  # 等待保存完成
+                    except Exception as e:
+                        logger.warning(f"JavaScript查找'保存为草稿'按钮失败: {e}")
+                
+                if not draft_clicked:
+                    logger.warning("⚠️ 未找到'保存为草稿'按钮，继续执行发表流程...")
+                else:
+                    logger.info("✅ 草稿保存完成")
+            except Exception as e:
+                logger.warning(f"保存为草稿时出错: {e}，继续执行发表流程...")
+            
             # 查找发表按钮
             button_info = self.find_publish_button()
             if not button_info.get("found"):
@@ -2112,6 +2321,182 @@ class WeChatPublisher:
             logger.info("已点击发表按钮，等待对话框出现...")
             time.sleep(2)
             
+            # 检查是否有标题错误提示（"标题不能为空且长度不能超过64字"）
+            logger.info("检查是否有标题错误提示...")
+            title_error_found = False
+            try:
+                # 等待错误提示出现（最多等待3秒）
+                for i in range(6):  # 3秒，每0.5秒检查一次
+                    time.sleep(0.5)
+                    # 查找错误提示（多种方法）
+                    error_selectors = [
+                        'text=标题不能为空且长度不能超过64字',
+                        'text=标题不能为空',
+                        'text=标题长度不能超过64字',
+                        '[class*="error"]',
+                        '[class*="warning"]',
+                        '.error-message',
+                        '.warning-message'
+                    ]
+                    
+                    for selector in error_selectors:
+                        try:
+                            error_el = self.page.locator(selector).first
+                            if error_el.is_visible(timeout=1000):
+                                error_text = error_el.text_content()
+                                if error_text and ('标题' in error_text and ('不能为空' in error_text or '长度' in error_text)):
+                                    logger.warning(f"⚠️ 检测到标题错误提示: {error_text}")
+                                    title_error_found = True
+                                    break
+                        except:
+                            continue
+                    
+                    if title_error_found:
+                        break
+            except Exception as e:
+                logger.warning(f"检查标题错误提示时出错: {e}")
+            
+            # 如果出现标题错误，检查并重新设置标题
+            if title_error_found and title:
+                logger.warning("标题错误提示出现，检查并重新设置标题...")
+                try:
+                    # 检查标题是否设置成功
+                    title_selectors = ['#js_title_main', '#title', 'textarea[name="title"]']
+                    title_set = False
+                    for selector in title_selectors:
+                        try:
+                            title_el = self.page.locator(selector).first
+                            if title_el.is_visible(timeout=2000):
+                                actual_value = title_el.input_value()
+                                logger.info(f"当前标题值: '{actual_value}'")
+                                if not actual_value or actual_value.strip() == '':
+                                    logger.warning("标题为空，重新设置...")
+                                    # 重新设置标题
+                                    title_el.clear()
+                                    time.sleep(0.2)
+                                    title_el.fill(title)
+                                    time.sleep(0.5)
+                                    title_el.press('Tab')
+                                    time.sleep(0.3)
+                                    # 验证
+                                    new_value = title_el.input_value()
+                                    if new_value == title or new_value.strip() == title.strip():
+                                        logger.info(f"✅ 标题重新设置成功: '{new_value}'")
+                                        title_set = True
+                                        break
+                                    else:
+                                        logger.warning(f"⚠️ 标题重新设置后值不匹配，期望: '{title}', 实际: '{new_value}'")
+                                else:
+                                    logger.info(f"标题已存在: '{actual_value}'")
+                                    if actual_value == title or actual_value.strip() == title.strip():
+                                        title_set = True
+                                    break
+                        except Exception as e:
+                            logger.warning(f"检查标题时出错 ({selector}): {e}")
+                            continue
+                    
+                    if title_set:
+                        logger.info("✅ 标题已正确设置，等待2秒后继续...")
+                        time.sleep(2)
+                        # 重新点击发表按钮
+                        logger.info("重新点击发表按钮...")
+                        button_info = self.find_publish_button()
+                        if button_info.get("found"):
+                            selector = button_info.get("selector")
+                            if selector == "text_match":
+                                text = button_info.get("text", "")
+                                self.page.click(f'text="{text}"')
+                            else:
+                                try:
+                                    self.page.click(selector)
+                                except:
+                                    self.page.click(f'text="{button_info.get("text", "发表")}"')
+                            logger.info("✅ 已重新点击发表按钮")
+                            time.sleep(2)
+                    else:
+                        logger.error("❌ 标题设置失败，请手动检查")
+                except Exception as e:
+                    logger.error(f"重新设置标题时出错: {e}")
+            
+            # 检查并处理创作来源声明弹窗（"无需声明并发表"）
+            logger.info("检查是否有创作来源声明弹窗...")
+            try:
+                # 等待弹窗出现（最多等待5秒）
+                for i in range(10):  # 5秒，每0.5秒检查一次
+                    time.sleep(0.5)
+                    # 查找"无需声明并发表"按钮（多种方法）
+                    no_declare_selectors = [
+                        'text=无需声明并发表',
+                        'text=无需声明并发布',
+                        'button:has-text("无需声明并发表")',
+                        'button:has-text("无需声明并发布")',
+                        '.btn[class*="no-declare"]',
+                        '.btn[class*="no-declaration"]'
+                    ]
+                    
+                    clicked_no_declare = False
+                    for selector in no_declare_selectors:
+                        try:
+                            btn = self.page.locator(selector).first
+                            if btn.is_visible(timeout=1000):
+                                logger.info(f"✅ 找到'无需声明并发表'按钮: {selector}")
+                                btn.click()
+                                logger.info("✅ 已点击'无需声明并发表'按钮")
+                                clicked_no_declare = True
+                                time.sleep(1)  # 等待弹窗关闭
+                                break
+                        except:
+                            continue
+                    
+                    if clicked_no_declare:
+                        break
+                    
+                    # 也检查弹窗是否存在（通过查找弹窗特有元素）
+                    try:
+                        modal = self.page.locator('[class*="modal"], [class*="dialog"], [class*="popup"]').first
+                        if modal.is_visible(timeout=500):
+                            # 弹窗存在，继续查找按钮
+                            continue
+                    except:
+                        # 弹窗不存在，可能已经关闭或不需要处理
+                        break
+                
+                # 额外检查：使用JavaScript查找并点击
+                if not clicked_no_declare:
+                    js_click_no_declare = r'''
+                    (function(){
+                        // 查找"无需声明并发表"按钮
+                        const buttons = document.querySelectorAll('button, a, [role="button"]');
+                        for (const btn of buttons) {
+                            const text = btn.textContent.trim();
+                            if (text === '无需声明并发表' || 
+                                text === '无需声明并发布' || 
+                                text.includes('无需声明并发表') || 
+                                text.includes('无需声明并发布')) {
+                                const style = window.getComputedStyle(btn);
+                                if (btn.offsetWidth > 0 && btn.offsetHeight > 0 && style.display !== 'none') {
+                                    btn.click();
+                                    return {found: true, text: text};
+                                }
+                            }
+                        }
+                        return {found: false};
+                    })();
+                    '''
+                    try:
+                        result = self.page.evaluate(js_click_no_declare)
+                        if result.get('found'):
+                            logger.info(f"✅ 使用JavaScript点击'无需声明并发表'按钮: {result.get('text')}")
+                            time.sleep(1)  # 等待弹窗关闭
+                            clicked_no_declare = True
+                    except Exception as e:
+                        logger.warning(f"JavaScript点击'无需声明并发表'失败: {e}")
+                
+                if not clicked_no_declare:
+                    logger.info("未检测到创作来源声明弹窗，或已自动处理")
+            except Exception as e:
+                logger.warning(f"处理创作来源声明弹窗时出错: {e}，继续执行...")
+            
             # 如果设置了定时时间，配置定时发表
             if scheduled_time:
                 # 如果没有指定日期，默认为今天
@@ -2123,10 +2508,12 @@ class WeChatPublisher:
                     # 使用 evaluate 执行 JavaScript 设置定时发表
                     result = self.page.evaluate(
                         JS_SET_SCHEDULED_PUBLISH,
-                        True,  # enableScheduled
-                        scheduled_date,  # scheduledDate
-                        scheduled_time,  # scheduledTime
-                        enable_group_notify  # enableGroupNotify
+                        {
+                            "enableScheduled": True,
+                            "scheduledDate": scheduled_date,
+                            "scheduledTime": scheduled_time,
+                            "enableGroupNotify": enable_group_notify
+                        }
                     )
                     logger.info(f"定时发表配置结果: {result}")
                     if not result.get("ok"):
@@ -2345,7 +2732,8 @@ def publish_from_markdown(
                 auto_confirm=False,
                 scheduled_time=scheduled_time,
                 scheduled_date=scheduled_date,
-                enable_group_notify=enable_group_notify
+                enable_group_notify=enable_group_notify,
+                title=title  # 传递标题用于错误检查
             )
             result["publish"] = publish_result
             if publish_result.get("ok"):
