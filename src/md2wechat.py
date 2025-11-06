@@ -707,6 +707,75 @@ class FormulaProcessor:
         
         return result
     
+    @staticmethod
+    def _add_noise_to_image(base64_data_url: str, noise_intensity: float = 0.5) -> str:
+        """
+        为图片添加微小噪声，增加数据量以避免被微信公众号移除
+        
+        Args:
+            base64_data_url: base64 编码的图片数据 URL
+            noise_intensity: 噪声强度（0-1），值越小噪声越不明显
+        
+        Returns:
+            添加噪声后的 base64 编码图片数据 URL
+        """
+        try:
+            from PIL import Image
+            import numpy as np
+            from io import BytesIO
+            
+            # 解析 base64 数据 URL
+            if ',' in base64_data_url:
+                header, data = base64_data_url.split(',', 1)
+                mime_type = header.split(';')[0].split(':')[1]
+            else:
+                data = base64_data_url
+                mime_type = 'image/png'
+            
+            # 解码 base64
+            image_data = base64.b64decode(data)
+            
+            # 使用 PIL 打开图片
+            img = Image.open(BytesIO(image_data))
+            
+            # 转换为 RGBA 模式（如果还不是）
+            if img.mode != 'RGBA':
+                img = img.convert('RGBA')
+            
+            # 转换为 numpy 数组
+            img_array = np.array(img, dtype=np.float32)
+            
+            # 添加微小的高斯噪声（只对非透明像素添加）
+            # 噪声强度很小，不会影响视觉效果
+            noise = np.random.normal(0, noise_intensity, img_array.shape).astype(np.float32)
+            
+            # 只对非透明像素添加噪声（alpha > 0）
+            alpha_mask = img_array[:, :, 3:4] > 0
+            img_array[:, :, :3] = np.where(alpha_mask, 
+                                           np.clip(img_array[:, :, :3] + noise[:, :, :3], 0, 255), 
+                                           img_array[:, :, :3])
+            
+            # 转换回 uint8
+            img_array = np.clip(img_array, 0, 255).astype(np.uint8)
+            
+            # 转换回 PIL Image
+            img_noisy = Image.fromarray(img_array, 'RGBA')
+            
+            # 保存到内存缓冲区
+            buf = BytesIO()
+            img_noisy.save(buf, format='PNG', optimize=False)  # 不优化以保持数据量
+            
+            # 转换为 base64
+            buf.seek(0)
+            image_data_noisy = buf.read()
+            base64_data = base64.b64encode(image_data_noisy).decode('utf-8')
+            
+            return f"data:{mime_type};base64,{base64_data}"
+        except Exception as e:
+            # 如果添加噪声失败，返回原始图片
+            print(f"Warning: Failed to add noise to image: {e}")
+            return base64_data_url
+    
     def render_latex_to_base64(self, latex: str, is_inline: bool = False) -> str:
         """
         将 LaTeX 公式渲染为图片并转换为 base64
@@ -721,16 +790,16 @@ class FormulaProcessor:
         # 优先使用 CodeCogs 渲染（下载图片并转为 base64）
         # CodeCogs 支持更复杂的 LaTeX 公式，渲染质量更好
         try:
-            return self._render_with_codecogs(latex, is_inline)
+            result = self._render_with_codecogs(latex, is_inline)
         except Exception as e:
             print(f"Warning: Failed to render formula with CodeCogs: {e}")
             # 备选方案：尝试使用 sympy + matplotlib
             try:
-                return self._render_with_sympy_matplotlib(latex, is_inline)
+                result = self._render_with_sympy_matplotlib(latex, is_inline)
             except ImportError:
                 # 如果没有 sympy，尝试使用 matplotlib
                 try:
-                    return self._render_with_matplotlib(latex, is_inline)
+                    result = self._render_with_matplotlib(latex, is_inline)
                 except ImportError:
                     print("Warning: matplotlib not available, formula rendering failed")
                     # 返回占位符
@@ -739,6 +808,12 @@ class FormulaProcessor:
                 print(f"Warning: Failed to render formula with sympy/matplotlib: {e2}")
                 # 返回占位符
                 return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        
+        # 对于内联公式，添加微小噪声以增加数据量，避免被微信公众号移除
+        if is_inline:
+            result = self._add_noise_to_image(result, noise_intensity=0.3)
+        
+        return result
     
     def _render_with_sympy_matplotlib(self, latex: str, is_inline: bool = False) -> str:
         """使用 sympy + matplotlib 渲染 LaTeX 公式（更好的复杂公式支持）"""
@@ -756,17 +831,20 @@ class FormulaProcessor:
         logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
         
         # 尝试使用 sympy 优化 LaTeX（如果可能）
+        # 先清理 LaTeX 中的 $ 符号（可能来自公式解析时的残留）
+        cleaned_latex = latex.strip().strip('$')
         try:
             # 尝试将 LaTeX 解析为 sympy 表达式再转回 LaTeX（优化格式）
             # 注意：这只能处理简单的表达式，复杂公式保持原样
-            expr = sympify(latex, evaluate=False)
+            # sympy 不支持包含 $ 符号的 LaTeX，所以使用清理后的版本
+            expr = sympify(cleaned_latex, evaluate=False)
             optimized_latex = sympy_latex(expr)
             # 如果优化后的 LaTeX 太短或与原式差异太大，使用原式
-            if len(optimized_latex) < len(latex) * 0.5:
-                optimized_latex = latex
+            if len(optimized_latex) < len(cleaned_latex) * 0.5:
+                optimized_latex = cleaned_latex
         except (SympifyError, Exception):
-            # 如果无法解析，直接使用原始 LaTeX
-            optimized_latex = latex
+            # 如果无法解析，直接使用清理后的 LaTeX（不包含 $ 符号）
+            optimized_latex = cleaned_latex
         
         # 设置字体
         plt.rcParams['mathtext.fontset'] = 'dejavusans'
@@ -774,13 +852,24 @@ class FormulaProcessor:
         
         # 始终使用透明背景，在 HTML 层面添加浅色背景容器来强调
         
+        # 根据公式复杂度动态调整图片尺寸
+        # 检测公式是否包含矩阵、多个等号等复杂结构
+        has_matrix = 'bmatrix' in optimized_latex or 'pmatrix' in optimized_latex or 'vmatrix' in optimized_latex
+        has_multiple_equals = optimized_latex.count('=') > 1
+        is_long_formula = len(optimized_latex) > 100
+        
         # 创建图形（行内公式使用更小的尺寸）
         if is_inline:
             # 行内公式：使用非常小的图形，只包含公式内容
             fig, ax = plt.subplots(figsize=(6, 0.4), facecolor='none')
         else:
-            # 块级公式：使用较大的图形
-            fig, ax = plt.subplots(figsize=(10, 1.5), facecolor='none')
+            # 块级公式：根据复杂度调整尺寸
+            if has_matrix or has_multiple_equals or is_long_formula:
+                # 复杂公式（包含矩阵、多个等号或较长）：使用更大的图形
+                fig, ax = plt.subplots(figsize=(16, 2.0), facecolor='none')
+            else:
+                # 普通块级公式：使用标准尺寸
+                fig, ax = plt.subplots(figsize=(10, 1.5), facecolor='none')
         
         ax.axis('off')
         ax.set_facecolor('none')
@@ -789,18 +878,22 @@ class FormulaProcessor:
         fontsize = 12 if is_inline else 18
         
         # 处理 LaTeX 代码
+        # optimized_latex 已经清理过 $ 符号，直接使用
         if is_inline:
             formula_text = f'${optimized_latex}$'
         else:
-            formula_text = optimized_latex.strip().strip('$')
+            # 块级公式不需要 $ 符号
+            formula_text = optimized_latex
         
         ax.text(0.5, 0.5, formula_text,
                 fontsize=fontsize, ha='center', va='center',
                 transform=ax.transAxes, usetex=False)
         
         # 保存到内存缓冲区（使用透明背景）
+        # 对于复杂公式，使用更高的 DPI 以确保清晰度
+        dpi = 150 if is_inline else (250 if (has_matrix or has_multiple_equals or is_long_formula) else 200)
         buf = BytesIO()
-        plt.savefig(buf, format='png', dpi=150 if is_inline else 200, 
+        plt.savefig(buf, format='png', dpi=dpi, 
                    bbox_inches='tight', pad_inches=0.05 if is_inline else 0.1,
                    facecolor='none', transparent=True)
         plt.close(fig)
@@ -836,13 +929,28 @@ class FormulaProcessor:
         
         # 始终使用透明背景，在 HTML 层面添加浅色背景容器来强调
         
+        # 处理 LaTeX 代码：确保块级公式不包含 $ 符号
+        # 先清理 LaTeX 中的 $ 符号（可能来自公式解析时的残留）
+        cleaned_latex = latex.strip().strip('$')
+        
+        # 根据公式复杂度动态调整图片尺寸
+        # 检测公式是否包含矩阵、多个等号等复杂结构
+        has_matrix = 'bmatrix' in cleaned_latex or 'pmatrix' in cleaned_latex or 'vmatrix' in cleaned_latex
+        has_multiple_equals = cleaned_latex.count('=') > 1
+        is_long_formula = len(cleaned_latex) > 100
+        
         # 创建图形（行内公式使用更小的尺寸）
         if is_inline:
             # 行内公式：使用非常小的图形，只包含公式内容
             fig, ax = plt.subplots(figsize=(6, 0.4), facecolor='none')
         else:
-            # 块级公式：使用较大的图形
-            fig, ax = plt.subplots(figsize=(10, 1.5), facecolor='none')
+            # 块级公式：根据复杂度调整尺寸
+            if has_matrix or has_multiple_equals or is_long_formula:
+                # 复杂公式（包含矩阵、多个等号或较长）：使用更大的图形
+                fig, ax = plt.subplots(figsize=(16, 2.0), facecolor='none')
+            else:
+                # 普通块级公式：使用标准尺寸
+                fig, ax = plt.subplots(figsize=(10, 1.5), facecolor='none')
         
         ax.axis('off')
         ax.set_facecolor('none')
@@ -850,20 +958,21 @@ class FormulaProcessor:
         # 渲染公式（行内公式使用更小的字体）
         fontsize = 12 if is_inline else 18
         
-        # 处理 LaTeX 代码：确保块级公式不包含 $ 符号
         if is_inline:
-            formula_text = f'${latex}$'
+            formula_text = f'${cleaned_latex}$'
         else:
-            # 块级公式，移除可能存在的 $ 符号
-            formula_text = latex.strip().strip('$')
+            # 块级公式不需要 $ 符号
+            formula_text = cleaned_latex
         
         ax.text(0.5, 0.5, formula_text,
                 fontsize=fontsize, ha='center', va='center',
                 transform=ax.transAxes, usetex=False)  # 使用 matplotlib 的数学文本渲染
         
         # 保存到内存缓冲区（使用透明背景）
+        # 对于复杂公式，使用更高的 DPI 以确保清晰度
+        dpi = 150 if is_inline else (250 if (has_matrix or has_multiple_equals or is_long_formula) else 200)
         buf = BytesIO()
-        plt.savefig(buf, format='png', dpi=150 if is_inline else 200, 
+        plt.savefig(buf, format='png', dpi=dpi, 
                    bbox_inches='tight', pad_inches=0.05 if is_inline else 0.1,
                    facecolor='none', transparent=True)
         plt.close(fig)
@@ -900,12 +1009,27 @@ class FormulaProcessor:
         import urllib.request
         import re
         
+        # 先清理 LaTeX 中的 $ 符号（可能来自公式解析时的残留）
+        latex = latex.strip().strip('$')
+        
         # 转换 cases 环境为 array 环境（CodeCogs 不支持 cases）
         # \begin{cases}...\end{cases} -> \left\{\begin{array}{ll}...\end{array}\right.
         latex = self._convert_cases_to_array(latex)
         
-        # 设置 DPI（行内公式使用较小 DPI，块级公式使用较大 DPI）
-        dpi = 150 if not is_inline else 120
+        # 根据公式复杂度动态调整 DPI
+        # 检测公式是否包含矩阵、多个等号等复杂结构
+        has_matrix = 'bmatrix' in latex or 'pmatrix' in latex or 'vmatrix' in latex
+        has_multiple_equals = latex.count('=') > 1
+        is_long_formula = len(latex) > 100
+        
+        # 设置 DPI（行内公式使用较小 DPI，块级公式根据复杂度调整）
+        if is_inline:
+            dpi = 120
+        elif has_matrix or has_multiple_equals or is_long_formula:
+            # 复杂公式使用更高的 DPI
+            dpi = 200
+        else:
+            dpi = 150
         
         # 始终使用透明背景，在 HTML 层面添加浅色背景容器来强调
         # 构建 CodeCogs URL（使用透明背景）
@@ -979,13 +1103,14 @@ class FormulaProcessor:
             latex: LaTeX 公式代码
         
         Returns:
-            HTML img 标签（内联显示，base64 嵌入，无背景强调）
+            HTML span 标签（内联显示，base64 嵌入，带米黄色背景以避免被微信公众号移除）
         """
         data_url = self.render_latex_to_base64(latex, is_inline=True)
-        # 行内公式样式：inline-block 确保不换行，vertical-align 与文本对齐，限制高度
+        # 行内公式样式：使用 span 包裹，添加米黄色背景以避免被微信公众号移除小图片
+        # inline-block 确保不换行，vertical-align 与文本对齐，限制高度
         # 宽度自适应内容，不设置 max-width，让图片自然宽度显示
-        # 行内公式不使用背景强调，保持简洁
-        return f'<img src="{data_url}" style="display:inline-block;vertical-align:middle;max-height:1.2em;height:auto;width:auto;">'
+        # 添加米黄色背景（#FFF8DC）和内边距，使图片更明显
+        return f'<span style="display:inline-block;vertical-align:middle;background-color:#FFF8DC;padding:2px 4px;border-radius:3px;"><img src="{data_url}" style="display:inline-block;vertical-align:middle;max-height:1.2em;height:auto;width:auto;"></span>'
     
     def format_block_formula(self, latex: str) -> str:
         """
@@ -1180,34 +1305,61 @@ class ImageProcessor:
         """
         self.base_dir = Path(base_dir) if base_dir else None
     
-    def process_image(self, src: str, alt: str = "", title: str = "") -> str:
+    def process_image(self, src: str, alt: str = "", title: str = "", image_number: int = 0) -> str:
         """
-        处理图片，转换为 base64 嵌入格式
+        处理图片，转换为 base64 嵌入格式，并显示图名和编号
         
         Args:
             src: 图片路径（本地或URL）
-            alt: 图片替代文本
-            title: 图片标题
+            alt: 图片替代文本（将作为图名显示）
+            title: 图片标题（未使用，保留用于兼容性）
+            image_number: 图片编号（从1开始）
         
         Returns:
-            HTML img 标签（base64 格式）
+            HTML img 标签（base64 格式），包含图名和编号
         """
         # 尝试解析为 base64
         base64_data = self._get_image_base64(src)
         
+        # 构建图名（如果有 alt 文本，则使用 alt，否则使用空字符串）
+        image_name = alt.strip() if alt else ""
+        
+        # 构建图名显示部分
+        if image_number > 0:
+            # 正文图片：显示完整的"图 x. 标题"格式
+            if image_name:
+                caption_text = f"图{image_number}：{image_name}"
+            else:
+                caption_text = f"图{image_number}"
+        else:
+            # 卷首图片：完全不显示编号和图名
+            caption_text = ""
+        
+        # 转义图名中的 HTML 特殊字符
+        escaped_caption = self._escape_html(caption_text) if caption_text else ""
+        
+        # 构建图片 HTML
         if base64_data:
             # 获取 MIME 类型
             mime_type = self._get_mime_type(src)
             data_url = f"data:{mime_type};base64,{base64_data}"
             
-            return f"""<span style="display:block;text-align:center;">
-    <img src="{data_url}" alt="{self._escape_html(alt)}" style="max-width:100%;height:auto;border:1px solid #EAEAEA;">
-</span><br>"""
+            img_html = f"""<span style="display:block;text-align:center;">
+    <img src="{data_url}" alt="{self._escape_html(alt)}" style="max-width:100%;height:auto;border:1px solid #EAEAEA;">"""
         else:
             # 如果无法转换为 base64，使用原始 URL
-            return f"""<span style="display:block;text-align:center;">
-    <img src="{src}" alt="{self._escape_html(alt)}" style="max-width:100%;height:auto;border:1px solid #EAEAEA;">
+            img_html = f"""<span style="display:block;text-align:center;">
+    <img src="{src}" alt="{self._escape_html(alt)}" style="max-width:100%;height:auto;border:1px solid #EAEAEA;">"""
+        
+        # 如果有图名，添加图名显示（小字体、淡颜色）
+        if escaped_caption:
+            img_html += f"""
+    <div style="font-size:0.85em;color:#888888;margin-top:6px;line-height:1.4;">{escaped_caption}</div>"""
+        
+        img_html += """
 </span><br>"""
+        
+        return img_html
     
     def _get_image_base64(self, src: str) -> Optional[str]:
         """获取图片的 base64 编码"""
@@ -1280,13 +1432,16 @@ class WeChatHTMLConverter:
         self.formula_processor = FormulaProcessor(style_config=self.style_config)
         # MermaidProcessor 需要实例化，以便管理临时文件，传入样式配置以适配主题
         self.mermaid_processor = MermaidProcessor(style_config=self.style_config)
+        # 图片计数器，用于为图片编号
+        self.image_counter = 0
     
-    def convert(self, md_file: str) -> str:
+    def convert(self, md_file: str, source: Optional[str] = None) -> str:
         """
         转换 Markdown 文件为微信公众号 HTML
         
         Args:
             md_file: Markdown 文件路径
+            source: 来源信息（可选，如果提供则覆盖 Front Matter 中的来源）
         
         Returns:
             转换后的 HTML 字符串
@@ -1304,12 +1459,40 @@ class WeChatHTMLConverter:
         tags = parser.get_front_matter("tags", [])
         if isinstance(tags, str):
             tags = [tags]
+        permalink = parser.get_front_matter("permalink", "")
+        
+        # 提取来源信息
+        # 优先级：参数 source > Front Matter tags 中的来源 > 默认值
+        extracted_source = None
+        
+        # 如果参数提供了 source，直接使用
+        if source:
+            extracted_source = source
+        else:
+            # 从 tags 中查找来源信息
+            # 支持格式：来源:xxx、source:xxx、来源：xxx、source：xxx
+            for tag in tags:
+                if isinstance(tag, str):
+                    # 检查是否是来源标签
+                    if tag.startswith("来源:") or tag.startswith("来源："):
+                        extracted_source = tag.split(":", 1)[-1].split("：", 1)[-1].strip()
+                        break
+                    elif tag.startswith("source:") or tag.startswith("source："):
+                        extracted_source = tag.split(":", 1)[-1].split("：", 1)[-1].strip()
+                        break
+        
+        # 如果都没有，使用默认值
+        if not extracted_source:
+            extracted_source = "gnss.ac.cn"
+        
+        # 重置图片计数器
+        self.image_counter = 0
         
         # 转换 body
         html_body = self._convert_body(parser.body)
         
         # 生成完整 HTML
-        return self._generate_html(title, date, tags, html_body)
+        return self._generate_html(title, date, tags, html_body, extracted_source, permalink)
     
     def _convert_body(self, md_body: str) -> str:
         """将 Markdown 正文转换为 HTML（按章节 H3 分块，忽略 H1，H2 使用粗横线格式）"""
@@ -1392,7 +1575,9 @@ class WeChatHTMLConverter:
                         # 单行 $$...$$
                         content = content[:-2]
                         flush_para_buffer(parabuf)
-                        (cur['items'] if cur else preface).append(('formula', content.strip()))
+                        # 清理公式内容中的所有 $ 符号（防止残留）
+                        formula_content = content.strip().strip('$')
+                        (cur['items'] if cur else preface).append(('formula', formula_content))
                         in_formula = False
                     else:
                         buf_formula = [content]
@@ -1402,9 +1587,17 @@ class WeChatHTMLConverter:
                     tail = line.strip()
                     if tail != '$$':
                         # 容错：末行可能还有内容
-                        content += '\n' + tail.replace('$$', '')
+                        # 移除末尾的 $$，但保留其他内容
+                        tail_cleaned = tail.rstrip('$').rstrip('$') if tail.endswith('$$') else tail.replace('$$', '')
+                        content += '\n' + tail_cleaned
                     flush_para_buffer(parabuf)
-                    (cur['items'] if cur else preface).append(('formula', content.strip()))
+                    # 清理公式内容中的所有 $ 符号（防止残留）
+                    formula_content = content.strip()
+                    # 移除首尾的 $ 符号
+                    formula_content = formula_content.strip('$')
+                    # 移除内容中可能残留的 $$（虽然不应该有，但容错处理）
+                    formula_content = formula_content.replace('$$', '').replace('$$', '')
+                    (cur['items'] if cur else preface).append(('formula', formula_content))
                     in_formula = False
                     buf_formula = []
                 i += 1
@@ -1659,7 +1852,27 @@ class WeChatHTMLConverter:
             card_content = []
             has_real_content = False  # 标记是否有实际内容（不包括空行）
             
-            for item_type, *item_data in content:
+            # 检查第一个非空内容项是否是图片（用于判断是否在标题附近）
+            first_real_item_idx = -1
+            for idx, (item_type, *item_data) in enumerate(content):
+                # 跳过空项和空段落
+                if item_type == "empty":
+                    continue
+                if item_type == "paragraph":
+                    para_text = item_data[0] if len(item_data) > 0 else ""
+                    if para_text.strip():
+                        first_real_item_idx = idx
+                        break
+                else:
+                    # 其他类型（heading, code, image, formula, mermaid, list, table等）
+                    first_real_item_idx = idx
+                    break
+            
+            is_first_image = (first_real_item_idx >= 0 and 
+                            len(content) > first_real_item_idx and 
+                            content[first_real_item_idx][0] == "image")
+            
+            for idx, (item_type, *item_data) in enumerate(content):
                 if item_type == "heading":
                     # 子标题（H4+）
                     heading_text = item_data[0] if len(item_data) > 0 else ""
@@ -1680,7 +1893,9 @@ class WeChatHTMLConverter:
                     src = item_data[0] if len(item_data) > 0 else ""
                     alt = item_data[1] if len(item_data) > 1 else ""
                     title = item_data[2] if len(item_data) > 2 else ""
-                    card_content.append(self.image_processor.process_image(src, alt, title))
+                    # 正文中的图片（包括标题附近的图片）都从1开始编号
+                    self.image_counter += 1
+                    card_content.append(self.image_processor.process_image(src, alt, title, self.image_counter))
                     has_real_content = True
                 elif item_type == "formula":
                     # 块级公式已经包含米黄色背景和正确的<div>标签，直接使用
@@ -1711,6 +1926,7 @@ class WeChatHTMLConverter:
                 html_parts.append(card_html)
         else:
             # 其他分块（如卷首语），正常输出内容
+            # 卷首语中的图片不编号
             for item_type, *item_data in content:
                 if item_type == "heading":
                     # 子标题（H4+）
@@ -1726,7 +1942,8 @@ class WeChatHTMLConverter:
                     src = item_data[0] if len(item_data) > 0 else ""
                     alt = item_data[1] if len(item_data) > 1 else ""
                     title = item_data[2] if len(item_data) > 2 else ""
-                    html_parts.append(self.image_processor.process_image(src, alt, title))
+                    # 卷首语中的图片不编号（传入 0）
+                    html_parts.append(self.image_processor.process_image(src, alt, title, 0))
                 elif item_type == "formula":
                     html_parts.append(self.formula_processor.format_block_formula(item_data[0]))
                 elif item_type == "mermaid":
@@ -1983,7 +2200,7 @@ class WeChatHTMLConverter:
                 html_items.append(item_html)
         
         list_html = f"<{tag} style=\"margin:10px 0;padding-left:20px;line-height:1.8;\">" + "".join(html_items) + f"</{tag}>"
-        return list_html + "<br>"
+        return list_html
     
     def _convert_table(self, table_rows: List[Tuple], alignments: List[str]) -> str:
         """
@@ -2261,8 +2478,18 @@ class WeChatHTMLConverter:
         # 无效颜色，返回空字符串
         return ''
     
-    def _generate_html(self, title: str, date: str, tags: List[str], body: str) -> str:
-        """生成完整 HTML"""
+    def _generate_html(self, title: str, date: str, tags: List[str], body: str, source: str = "gnss.ac.cn", permalink: str = "") -> str:
+        """
+        生成完整 HTML
+        
+        Args:
+            title: 文章标题
+            date: 发布日期
+            tags: 标签列表
+            body: 正文 HTML
+            source: 来源信息（默认：gnss.ac.cn）
+            permalink: 永久链接（可选）
+        """
         # 标题条
         header_html = f'''<p style="background-color:{self.style_config.header_bg_color};color:{self.style_config.header_text_color};font-weight:bold;font-size:{self.style_config.header_font_size};line-height:1.6;padding:12px 14px;border-radius:10px 10px 0 0;margin:0;">
   {self._escape_html(title)}
@@ -2274,6 +2501,38 @@ class WeChatHTMLConverter:
         # 元信息
         meta_html = f'<span style="color:{self.style_config.meta_text_color};font-size:{self.style_config.meta_font_size};">日期：{date}　标签：{tags_str}</span><br><br>'
         
+        # 构建文尾信息（来源 + permalink）
+        footer_parts = []
+        footer_parts.append(f'<span style="color:{self.style_config.source_text_color};font-size:{self.style_config.source_font_size};">来源：{self._escape_html(source)}《{self._escape_html(title)}》</span>')
+        
+        # 如果有 permalink，添加链接
+        if permalink:
+            # 转义 URL（但保留协议和基本结构）
+            import urllib.parse
+            try:
+                parsed = urllib.parse.urlparse(permalink)
+                if parsed.scheme:
+                    # 有协议，只编码路径、查询字符串等部分
+                    path = urllib.parse.quote(parsed.path, safe='/')
+                    query = urllib.parse.quote(parsed.query, safe='&=')
+                    fragment = urllib.parse.quote(parsed.fragment, safe='')
+                    escaped_url = f"{parsed.scheme}://{parsed.netloc}{path}"
+                    if query:
+                        escaped_url += f"?{query}"
+                    if fragment:
+                        escaped_url += f"#{fragment}"
+                else:
+                    # 无协议，直接编码（但保留常见字符）
+                    escaped_url = urllib.parse.quote(permalink, safe='/:?=&')
+            except:
+                # 如果解析失败，直接转义特殊字符
+                escaped_url = permalink.replace('&', '&amp;').replace('"', '&quot;').replace("'", '&#39;')
+            
+            link_style = 'color:#576b95;text-decoration:underline;'
+            footer_parts.append(f'<br><br><a href="{escaped_url}" style="{link_style}font-size:{self.style_config.source_font_size};">原文链接：{self._escape_html(permalink)}</a>')
+        
+        footer_html = "".join(footer_parts)
+        
         # 主卡片
         card_style = f'border:1px solid {self.style_config.card_border_color};border-top:none;border-radius:0 0 10px 10px;background-color:{self.style_config.card_bg_color};color:{self.style_config.card_text_color};line-height:1.9;padding:14px;margin:0;'
         
@@ -2281,7 +2540,7 @@ class WeChatHTMLConverter:
   {meta_html}
   {body}
   
-  <span style="color:{self.style_config.source_text_color};font-size:{self.style_config.source_font_size};">来源：gnss.ac.cn《{self._escape_html(title)}》</span>
+  {footer_html}
 </p>'''
         
         return header_html + "\n\n" + card_html
@@ -2306,6 +2565,7 @@ def main():
     parser.add_argument("-s", "--style", default="academic_gray", 
                        choices=list(STYLES.keys()),
                        help="风格选择（默认：academic_gray）")
+    parser.add_argument("--source", help="来源信息（可选，如果提供则覆盖 Front Matter tags 中的来源，默认：gnss.ac.cn）")
     
     args = parser.parse_args()
     
@@ -2319,7 +2579,7 @@ def main():
     # 转换
     base_dir = str(Path(args.input).parent)
     converter = WeChatHTMLConverter(style=args.style, base_dir=base_dir)
-    html_content = converter.convert(args.input)
+    html_content = converter.convert(args.input, source=args.source)
     
     # 写入文件
     with open(output_path, 'w', encoding='utf-8') as f:
