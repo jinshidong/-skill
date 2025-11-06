@@ -61,4 +61,5 @@ htmlcov/
 *.svg
 !examples/images/*.png
 !examples/images/*.svg
-
+tmp_profile
+extracted_articles
