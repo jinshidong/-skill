@@ -707,6 +707,75 @@ class FormulaProcessor:
         
         return result
     
+    @staticmethod
+    def _add_noise_to_image(base64_data_url: str, noise_intensity: float = 0.5) -> str:
+        """
+        为图片添加微小噪声，增加数据量以避免被微信公众号移除
+        
+        Args:
+            base64_data_url: base64 编码的图片数据 URL
+            noise_intensity: 噪声强度（0-1），值越小噪声越不明显
+        
+        Returns:
+            添加噪声后的 base64 编码图片数据 URL
+        """
+        try:
+            from PIL import Image
+            import numpy as np
+            from io import BytesIO
+            
+            # 解析 base64 数据 URL
+            if ',' in base64_data_url:
+                header, data = base64_data_url.split(',', 1)
+                mime_type = header.split(';')[0].split(':')[1]
+            else:
+                data = base64_data_url
+                mime_type = 'image/png'
+            
+            # 解码 base64
+            image_data = base64.b64decode(data)
+            
+            # 使用 PIL 打开图片
+            img = Image.open(BytesIO(image_data))
+            
+            # 转换为 RGBA 模式（如果还不是）
+            if img.mode != 'RGBA':
+                img = img.convert('RGBA')
+            
+            # 转换为 numpy 数组
+            img_array = np.array(img, dtype=np.float32)
+            
+            # 添加微小的高斯噪声（只对非透明像素添加）
+            # 噪声强度很小，不会影响视觉效果
+            noise = np.random.normal(0, noise_intensity, img_array.shape).astype(np.float32)
+            
+            # 只对非透明像素添加噪声（alpha > 0）
+            alpha_mask = img_array[:, :, 3:4] > 0
+            img_array[:, :, :3] = np.where(alpha_mask, 
+                                           np.clip(img_array[:, :, :3] + noise[:, :, :3], 0, 255), 
+                                           img_array[:, :, :3])
+            
+            # 转换回 uint8
+            img_array = np.clip(img_array, 0, 255).astype(np.uint8)
+            
+            # 转换回 PIL Image
+            img_noisy = Image.fromarray(img_array, 'RGBA')
+            
+            # 保存到内存缓冲区
+            buf = BytesIO()
+            img_noisy.save(buf, format='PNG', optimize=False)  # 不优化以保持数据量
+            
+            # 转换为 base64
+            buf.seek(0)
+            image_data_noisy = buf.read()
+            base64_data = base64.b64encode(image_data_noisy).decode('utf-8')
+            
+            return f"data:{mime_type};base64,{base64_data}"
+        except Exception as e:
+            # 如果添加噪声失败，返回原始图片
+            print(f"Warning: Failed to add noise to image: {e}")
+            return base64_data_url
+    
     def render_latex_to_base64(self, latex: str, is_inline: bool = False) -> str:
         """
         将 LaTeX 公式渲染为图片并转换为 base64
@@ -721,16 +790,16 @@ class FormulaProcessor:
         # 优先使用 CodeCogs 渲染（下载图片并转为 base64）
         # CodeCogs 支持更复杂的 LaTeX 公式，渲染质量更好
         try:
-            return self._render_with_codecogs(latex, is_inline)
+            result = self._render_with_codecogs(latex, is_inline)
         except Exception as e:
             print(f"Warning: Failed to render formula with CodeCogs: {e}")
             # 备选方案：尝试使用 sympy + matplotlib
             try:
-                return self._render_with_sympy_matplotlib(latex, is_inline)
+                result = self._render_with_sympy_matplotlib(latex, is_inline)
             except ImportError:
                 # 如果没有 sympy，尝试使用 matplotlib
                 try:
-                    return self._render_with_matplotlib(latex, is_inline)
+                    result = self._render_with_matplotlib(latex, is_inline)
                 except ImportError:
                     print("Warning: matplotlib not available, formula rendering failed")
                     # 返回占位符
@@ -739,6 +808,12 @@ class FormulaProcessor:
                 print(f"Warning: Failed to render formula with sympy/matplotlib: {e2}")
                 # 返回占位符
                 return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        
+        # 对于内联公式，添加微小噪声以增加数据量，避免被微信公众号移除
+        if is_inline:
+            result = self._add_noise_to_image(result, noise_intensity=0.3)
+        
+        return result
     
     def _render_with_sympy_matplotlib(self, latex: str, is_inline: bool = False) -> str:
         """使用 sympy + matplotlib 渲染 LaTeX 公式（更好的复杂公式支持）"""
@@ -1028,13 +1103,14 @@ class FormulaProcessor:
             latex: LaTeX 公式代码
         
         Returns:
-            HTML img 标签（内联显示，base64 嵌入，无背景强调）
+            HTML span 标签（内联显示，base64 嵌入，带米黄色背景以避免被微信公众号移除）
         """
         data_url = self.render_latex_to_base64(latex, is_inline=True)
-        # 行内公式样式：inline-block 确保不换行，vertical-align 与文本对齐，限制高度
+        # 行内公式样式：使用 span 包裹，添加米黄色背景以避免被微信公众号移除小图片
+        # inline-block 确保不换行，vertical-align 与文本对齐，限制高度
         # 宽度自适应内容，不设置 max-width，让图片自然宽度显示
-        # 行内公式不使用背景强调，保持简洁
-        return f'<img src="{data_url}" style="display:inline-block;vertical-align:middle;max-height:1.2em;height:auto;width:auto;">'
+        # 添加米黄色背景（#FFF8DC）和内边距，使图片更明显
+        return f'<span style="display:inline-block;vertical-align:middle;background-color:#FFF8DC;padding:2px 4px;border-radius:3px;"><img src="{data_url}" style="display:inline-block;vertical-align:middle;max-height:1.2em;height:auto;width:auto;"></span>'
     
     def format_block_formula(self, latex: str) -> str:
         """
@@ -1359,12 +1435,13 @@ class WeChatHTMLConverter:
         # 图片计数器，用于为图片编号
         self.image_counter = 0
     
-    def convert(self, md_file: str) -> str:
+    def convert(self, md_file: str, source: Optional[str] = None) -> str:
         """
         转换 Markdown 文件为微信公众号 HTML
         
         Args:
             md_file: Markdown 文件路径
+            source: 来源信息（可选，如果提供则覆盖 Front Matter 中的来源）
         
         Returns:
             转换后的 HTML 字符串
@@ -1382,6 +1459,31 @@ class WeChatHTMLConverter:
         tags = parser.get_front_matter("tags", [])
         if isinstance(tags, str):
             tags = [tags]
+        permalink = parser.get_front_matter("permalink", "")
+        
+        # 提取来源信息
+        # 优先级：参数 source > Front Matter tags 中的来源 > 默认值
+        extracted_source = None
+        
+        # 如果参数提供了 source，直接使用
+        if source:
+            extracted_source = source
+        else:
+            # 从 tags 中查找来源信息
+            # 支持格式：来源:xxx、source:xxx、来源：xxx、source：xxx
+            for tag in tags:
+                if isinstance(tag, str):
+                    # 检查是否是来源标签
+                    if tag.startswith("来源:") or tag.startswith("来源："):
+                        extracted_source = tag.split(":", 1)[-1].split("：", 1)[-1].strip()
+                        break
+                    elif tag.startswith("source:") or tag.startswith("source："):
+                        extracted_source = tag.split(":", 1)[-1].split("：", 1)[-1].strip()
+                        break
+        
+        # 如果都没有，使用默认值
+        if not extracted_source:
+            extracted_source = "gnss.ac.cn"
         
         # 重置图片计数器
         self.image_counter = 0
@@ -1390,7 +1492,7 @@ class WeChatHTMLConverter:
         html_body = self._convert_body(parser.body)
         
         # 生成完整 HTML
-        return self._generate_html(title, date, tags, html_body)
+        return self._generate_html(title, date, tags, html_body, extracted_source, permalink)
     
     def _convert_body(self, md_body: str) -> str:
         """将 Markdown 正文转换为 HTML（按章节 H3 分块，忽略 H1，H2 使用粗横线格式）"""
@@ -2376,8 +2478,18 @@ class WeChatHTMLConverter:
         # 无效颜色，返回空字符串
         return ''
     
-    def _generate_html(self, title: str, date: str, tags: List[str], body: str) -> str:
-        """生成完整 HTML"""
+    def _generate_html(self, title: str, date: str, tags: List[str], body: str, source: str = "gnss.ac.cn", permalink: str = "") -> str:
+        """
+        生成完整 HTML
+        
+        Args:
+            title: 文章标题
+            date: 发布日期
+            tags: 标签列表
+            body: 正文 HTML
+            source: 来源信息（默认：gnss.ac.cn）
+            permalink: 永久链接（可选）
+        """
         # 标题条
         header_html = f'''<p style="background-color:{self.style_config.header_bg_color};color:{self.style_config.header_text_color};font-weight:bold;font-size:{self.style_config.header_font_size};line-height:1.6;padding:12px 14px;border-radius:10px 10px 0 0;margin:0;">
   {self._escape_html(title)}
@@ -2389,6 +2501,38 @@ class WeChatHTMLConverter:
         # 元信息
         meta_html = f'<span style="color:{self.style_config.meta_text_color};font-size:{self.style_config.meta_font_size};">日期：{date}　标签：{tags_str}</span><br><br>'
         
+        # 构建文尾信息（来源 + permalink）
+        footer_parts = []
+        footer_parts.append(f'<span style="color:{self.style_config.source_text_color};font-size:{self.style_config.source_font_size};">来源：{self._escape_html(source)}《{self._escape_html(title)}》</span>')
+        
+        # 如果有 permalink，添加链接
+        if permalink:
+            # 转义 URL（但保留协议和基本结构）
+            import urllib.parse
+            try:
+                parsed = urllib.parse.urlparse(permalink)
+                if parsed.scheme:
+                    # 有协议，只编码路径、查询字符串等部分
+                    path = urllib.parse.quote(parsed.path, safe='/')
+                    query = urllib.parse.quote(parsed.query, safe='&=')
+                    fragment = urllib.parse.quote(parsed.fragment, safe='')
+                    escaped_url = f"{parsed.scheme}://{parsed.netloc}{path}"
+                    if query:
+                        escaped_url += f"?{query}"
+                    if fragment:
+                        escaped_url += f"#{fragment}"
+                else:
+                    # 无协议，直接编码（但保留常见字符）
+                    escaped_url = urllib.parse.quote(permalink, safe='/:?=&')
+            except:
+                # 如果解析失败，直接转义特殊字符
+                escaped_url = permalink.replace('&', '&amp;').replace('"', '&quot;').replace("'", '&#39;')
+            
+            link_style = 'color:#576b95;text-decoration:underline;'
+            footer_parts.append(f'<br><br><a href="{escaped_url}" style="{link_style}font-size:{self.style_config.source_font_size};">原文链接：{self._escape_html(permalink)}</a>')
+        
+        footer_html = "".join(footer_parts)
+        
         # 主卡片
         card_style = f'border:1px solid {self.style_config.card_border_color};border-top:none;border-radius:0 0 10px 10px;background-color:{self.style_config.card_bg_color};color:{self.style_config.card_text_color};line-height:1.9;padding:14px;margin:0;'
         
@@ -2396,7 +2540,7 @@ class WeChatHTMLConverter:
   {meta_html}
   {body}
   
-  <span style="color:{self.style_config.source_text_color};font-size:{self.style_config.source_font_size};">来源：gnss.ac.cn《{self._escape_html(title)}》</span>
+  {footer_html}
 </p>'''
         
         return header_html + "\n\n" + card_html
@@ -2421,6 +2565,7 @@ def main():
     parser.add_argument("-s", "--style", default="academic_gray", 
                        choices=list(STYLES.keys()),
                        help="风格选择（默认：academic_gray）")
+    parser.add_argument("--source", help="来源信息（可选，如果提供则覆盖 Front Matter tags 中的来源，默认：gnss.ac.cn）")
     
     args = parser.parse_args()
     
@@ -2434,7 +2579,7 @@ def main():
     # 转换
     base_dir = str(Path(args.input).parent)
     converter = WeChatHTMLConverter(style=args.style, base_dir=base_dir)
-    html_content = converter.convert(args.input)
+    html_content = converter.convert(args.input, source=args.source)
     
     # 写入文件
     with open(output_path, 'w', encoding='utf-8') as f:
