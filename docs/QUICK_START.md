@@ -46,7 +46,7 @@ python publish_wechat.py --interactive
 
 ---
 
-## 第二步：发布第一篇文章
+## 第二步：发表第一篇文章
 
 ### 2.1 准备 Markdown 文件
 
@@ -66,10 +66,10 @@ tags:
 这是文章内容...
 ```
 
-### 2.2 发布文章
+### 2.2 发表文章
 
 ```bash
-# 基本发布（会打开浏览器，自动填充标题、作者和正文，然后保持打开状态）
+# 基本发表（会打开浏览器，自动填充标题、作者和正文，然后保持打开状态）
 python publish_wechat.py examples/2020-05-22-blog-post-13.md
 ```
 
@@ -82,10 +82,10 @@ python publish_wechat.py examples/2020-05-22-blog-post-13.md
 6. 浏览器保持打开，您可以：
    - 检查标题、作者和内容是否正确
    - 手动调整格式
-   - **手动点击"发布"或"群发"按钮**
-   - 确认发布
+   - **手动点击"发表"或"群发"按钮**
+   - 确认发表
 
-### 2.3 指定风格发布
+### 2.3 指定风格发表
 
 ```bash
 # 使用节日风格
@@ -98,21 +98,21 @@ python publish_wechat.py article.md --style tech
 python publish_wechat.py article.md --style announcement
 ```
 
-### 2.4 定时发布
+### 2.4 定时发表
 
 ```bash
-# 今天 20:30 定时发布（默认日期为今天）
+# 今天 20:30 定时发表（默认日期为今天）
 python publish_wechat.py article.md \
     --auto-publish \
     --scheduled-time "20:30"
 
-# 明天 20:30 定时发布
+# 明天 20:30 定时发表
 python publish_wechat.py article.md \
     --auto-publish \
     --scheduled-date "tomorrow" \
     --scheduled-time "20:30"
 
-# 指定日期发布（如 2024-12-25 20:30）
+# 指定日期发表（如 2024-12-25 20:30）
 python publish_wechat.py article.md \
     --auto-publish \
     --scheduled-date "2024-12-25" \
@@ -120,8 +120,8 @@ python publish_wechat.py article.md \
 ```
 
 **日期格式说明**：
-- `today` 或 `今天` - 今天发布
-- `tomorrow` 或 `明天` - 明天发布
+- `today` 或 `今天` - 今天发表
+- `tomorrow` 或 `明天` - 明天发表
 - `YYYY-MM-DD` - 指定日期，如 `2024-12-25`
 - 支持选择七天内的时间（微信公众号限制）
 
@@ -135,7 +135,7 @@ python publish_wechat.py article.md --no-clear
 
 ---
 
-## 第三步：定时发布（可选）
+## 第三步：定时发表（可选）
 
 ### 3.1 创建配置文件
 
@@ -156,7 +156,7 @@ python publish_wechat.py article.md --no-clear
 }
 ```
 
-### 3.2 运行定时发布器
+### 3.2 运行定时发表器
 
 ```bash
 # 使用配置文件
@@ -169,7 +169,7 @@ python schedule_publish.py \
   --style academic_gray
 ```
 
-**注意**：定时发布器需要持续运行，建议：
+**注意**：定时发表器需要持续运行，建议：
 - 在服务器上运行
 - 使用 `screen` 或 `tmux` 保持会话
 - 或使用 `nohup` 后台运行
@@ -178,25 +178,25 @@ python schedule_publish.py \
 
 ## 常见操作场景
 
-### 场景 1：快速发布一篇文章
+### 场景 1：快速发表一篇文章
 
 ```bash
 # 1. 确保已登录（首次需要）
 python publish_wechat.py --interactive
 # 登录后按 Enter 关闭
 
-# 2. 发布文章
+# 2. 发表文章
 python publish_wechat.py article.md
-# 检查内容后手动点击发布
+# 检查内容后手动点击发表
 ```
 
-### 场景 2：批量定时发布
+### 场景 2：批量定时发表
 
 ```bash
 # 1. 创建配置文件（包含多个任务）
 # 编辑 publish_config.json
 
-# 2. 运行定时发布器
+# 2. 运行定时发表器
 python schedule_publish.py --config publish_config.json
 
 # 3. 保持脚本运行（不要关闭终端）
@@ -250,28 +250,28 @@ python publish_wechat.py --interactive
 - 正文编辑器优先查找 `edui1` iframe（uEditor）
 - 如果找不到 iframe，会查找 contenteditable 元素
 
-### 问题 4：找不到发布按钮
+### 问题 4：找不到发表按钮
 
-**说明**：这是正常的，脚本会找到发布按钮但不会自动点击（安全考虑）
+**说明**：这是正常的，脚本会找到发表按钮但不会自动点击（安全考虑）
 - 脚本会插入内容到编辑器
-- 您需要手动点击"发布"或"群发"按钮
-- 这是为了避免误发布的风险
+- 您需要手动点击"发表"或"群发"按钮
+- 这是为了避免误发表的风险
 
 ---
 
 ## 重要提示
 
 ⚠️ **安全建议**：
-- 不要使用 `--auto-publish` 选项（存在误发布风险）
-- 发布前务必检查内容
+- 不要使用 `--auto-publish` 选项（存在误发表风险）
+- 发表前务必检查内容
 - 遵守微信平台规则
 
 ⚠️ **登录态管理**：
 - `./tmp_profile` 目录保存登录信息，不要删除
 - 如果登录态失效，删除该目录重新登录
 
-⚠️ **定时发布**：
-- 定时发布器需要持续运行
+⚠️ **定时发表**：
+- 定时发表器需要持续运行
 - 建议在服务器上运行，使用 `screen` 保持会话
 
 ---

@@ -234,9 +234,9 @@ page.evaluate(JS_INSERT_AT_CURSOR, html)
 ## 注意事项（必须留意）
 
 1. **登录态**：用 `user_data_dir` 保存登录态，首次运行必须人工登录并通过 MFA/验证码。
-2. **微信清洗**：即便插入 HTML，微信服务器在保存或发布时仍会按其白名单和清洗规则处理（移除 class、style 属性）。你需要把 `html` 预处理成“微信兼容白名单 HTML”（你已有这部分）。
+2. **微信清洗**：即便插入 HTML，微信服务器在保存或发表时仍会按其白名单和清洗规则处理（移除 class、style 属性）。你需要把 `html` 预处理成“微信兼容白名单 HTML”（你已有这部分）。
 3. **节奏与重试**：写入可能失败，请实现重试机制和读取回执（`innerHTML` 对比，或寻找插入的独特标记）。
-4. **合规/风险**：批量自动化发布、匿名代发等可能触发风控，请确保操作有人工确认环节并遵守微信平台规则。
+4. **合规/风险**：批量自动化发表、匿名代发等可能触发风控，请确保操作有人工确认环节并遵守微信平台规则。
 5. **权限**：若希望用系统剪贴板方式（`navigator.clipboard`），有些浏览器版本要求用户手势许可（即必须在用户点击事件内触发），所以脚本不能总是静默写剪贴板。Range 插入更稳。
 6. **版本差异**：微信公众号后台 DOM 结构会变，做好选择器 fallback 与 `MutationObserver` 监控变化。
 
@@ -248,13 +248,13 @@ page.evaluate(JS_INSERT_AT_CURSOR, html)
 
   1. 上传图片（返回微信 URL）；2. 替换 HTML；3. 在浏览器会话插入 HTML；4. 读取回执并 POST 回调结果（成功/失败 + 编辑器 innerHTML snippet）。
 * 为稳定性：把插入动作封装成事务：先在 DOM 插入占位 `<!-- MY_TOOL_INSERT:UUID -->`，确认后再把真实 HTML 片段替换进占位；若失败可回滚或提示人工处理。
-* 实现一个 dashboard（本地 Web UI）供人工触发/审核，避免全自动发布导致风控。
+* 实现一个 dashboard（本地 Web UI）供人工触发/审核，避免全自动发表导致风控。
 
 ---
 
 ## 已实现的功能
 
-基于上述设计，我们已经实现了一个完整的发布模块：
+基于上述设计，我们已经实现了一个完整的发表模块：
 
 ### 实现的功能
 
@@ -271,11 +271,11 @@ page.evaluate(JS_INSERT_AT_CURSOR, html)
 - `JS_INJECT_BRIDGE` - 注入全局桥接函数
 
 ✅ **命令行工具**：
-- `publish_wechat.py` - 发布命令行工具
-- `schedule_publish.py` - 定时发布工具
+- `publish_wechat.py` - 发表命令行工具
+- `schedule_publish.py` - 定时发表工具
 
 ✅ **完整文档**：
-- `docs/PUBLISH_GUIDE.md` - 详细发布指南
+- `docs/PUBLISH_GUIDE.md` - 详细发表指南
 - `docs/QUICK_START.md` - 快速开始指南
 
 ### 改进点
@@ -286,15 +286,15 @@ page.evaluate(JS_INSERT_AT_CURSOR, html)
 2. **自动填充标题和作者**：从 Markdown front matter 提取并填充
 3. **登录状态检测**：自动检测登录状态，支持等待登录完成
 4. **错误处理**：完善的错误处理和日志记录
-5. **定时发布**：支持多任务批量定时发布
+5. **定时发表**：支持多任务批量定时发表
 
 ### 使用方式
 
 ```bash
-# 基本发布
+# 基本发表
 python publish_wechat.py article.md
 
-# 定时发布
+# 定时发表
 python schedule_publish.py --config publish_config.json
 ```
 
@@ -318,3 +318,177 @@ element:<div id="edui1_contentplaceholder" class="editor_content_placeholder edu
 - Element：`<div class="new-creation__menu-content">...<div class="new-creation__menu-title">文章</div></div>`
 
 **注意**：点击"新的创作"按钮后，会展开下拉菜单，需要点击"文章"选项（不是"写新文章"）来进入编辑页面。
+
+
+
+你这次“找不到编辑器”的根因有几个很典型的坑（从你的日志和给的 XPath 能准确定位）：
+
+1. 你点了“新的创作 → 文章”后**并没有进入编辑页**，URL 又回到了 `home/index`（日志 13:17:35）。原因通常是：
+
+   * 顶部有一个**遮罩/新手引导**（你日志里出现了 *Broadcast Live Stream … Got It* 的浮层）。不先点 “Got It/我知道了”，菜单点击就会被拦。
+   * “文章”菜单会在**当前页打开、或在新标签页打开**（小概率）。你只盯着原 `page` 就会以为没跳转。
+
+2. 你后面**直接跳 `action=edit` 的裸 URL**，但微信会校验 token/上下文，往往重定向回首页，所以还是找不到编辑器。
+
+3. 即使到了编辑页，正文区一开始是你贴出来的这个**“占位节点”**：
+
+   ```
+   <div id="edui1_contentplaceholder" class="editor_content_placeholder" style="display:none">从这里开始写正文</div>
+   ```
+
+   真正的编辑器在一个 **UEditor 的 iframe** 里，需要先**点击正文区域**，等 `iframe[id^="ueditor"]` 挂载，再切 frame 操作。否则你在主文档里永远找不到 contenteditable。
+
+---
+
+下面给你一段“能打通”的修复版流程（Playwright / Python），解决以上三点：
+
+```python
+from playwright.sync_api import sync_playwright, expect
+import time
+
+USER_DATA_DIR = "./tmp_profile"
+HOME_URL = "https://mp.weixin.qq.com/"
+
+def goto_new_article(page):
+    page.goto(HOME_URL, wait_until="domcontentloaded")
+
+    # 1) 处理可能出现的引导/遮罩
+    for text in ["Got It", "我知道了", "知道了", "关闭"]:
+        loc = page.get_by_text(text, exact=True)
+        if loc.count():
+            try:
+                loc.first.click(timeout=1000)
+                time.sleep(0.3)
+            except: pass
+
+    # 2) 打开“新的创作”菜单
+    new_creation = page.locator('[class*="new-creation"], [data-test-id="new-creation"]')
+    if not new_creation.count():
+        # 备用入口：左侧“新建图文素材”
+        alt = page.get_by_text("新建图文", exact=False)
+        if alt.count():
+            alt.first.click()
+    else:
+        new_creation.first.click()
+        # 菜单里点击“文章”
+        # 用 visible + 文本定位，避免依赖易变的 XPath
+        article = page.get_by_text("文章", exact=True)
+        expect(article).to_be_visible(timeout=5000)
+        # 有时会打开**新标签**，要监听是否有新 page
+        with page.context.expect_page() as newp:
+            article.click()
+        try:
+            new_page = newp.value  # 如果真的弹了新页
+            page = new_page
+        except:
+            pass
+
+    # 3) 等真正进入编辑页面（URL 会含 appmsg_edit 或 media/appmsg）
+    page.wait_for_url(lambda url: "appmsg_edit" in url or "media/appmsg" in url, timeout=20000)
+
+    return page
+
+def wait_editor_ready(page):
+    # 标题与作者在主文档
+    title = page.locator('#title, textarea[placeholder*="标题"]')
+    expect(title).to_be_visible(timeout=15000)
+
+    # 4) 点击正文占位，让 UEditor 挂载 iframe
+    placeholder = page.locator('#edui1_contentplaceholder, .editor_content_placeholder')
+    if placeholder.count():
+        placeholder.first.click()
+    else:
+        # 也可能正文区域是一个可点击块
+        page.get_by_text("从这里开始写正文").first.click(timeout=2000)
+
+    # 5) 等待 UEditor 的 iframe 出现
+    # 选择器做得宽一点，兼容不同版本
+    iframe_loc = page.frame_locator('iframe[id^="ueditor"], iframe[id*="ueditor"], .edui-editor-iframeholder iframe')
+    expect(iframe_loc.first).to_be_visible(timeout=15000)
+
+    # 拿到 Frame 对象
+    frame = iframe_loc.first.frame
+    # 等 body 可编辑
+    frame.wait_for_selector('body', timeout=5000)
+    return title, frame
+
+def fill_title(page, text):
+    t = page.locator('#title, textarea[placeholder*="标题"]')
+    t.fill("")
+    t.type(text)
+
+def insert_html(frame, html):
+    # 在 frame 里用 Range 插入 HTML 片段
+    js = r'''
+    (html) => {
+      const doc = document;
+      const body = doc.body;
+      body.focus();
+      const sel = doc.getSelection();
+      if (!sel || !sel.rangeCount) {
+        const r = doc.createRange();
+        r.selectNodeContents(body);
+        r.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
+      const range = sel.getRangeAt(0);
+      const frag = range.createContextualFragment(html);
+      range.deleteContents();
+      range.insertNode(frag);
+      sel.collapseToEnd();
+      return true;
+    }'''
+    frame.evaluate(js, html)
+
+def main():
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(USER_DATA_DIR, headless=False, args=["--start-maximized"])
+        page = ctx.new_page()
+
+        # 确保已登录（根据你日志，已登录就会有后台菜单）
+        page.goto(HOME_URL, wait_until="domcontentloaded")
+        try:
+            page.wait_for_selector('a[data-id="menu_profile"]', timeout=6000)
+        except:
+            print("请先在弹出的浏览器完成扫码登录，再回到脚本窗口回车继续…")
+            input()
+
+        # 进入新建文章页（关键修复：处理遮罩 + 监听新标签）
+        page = goto_new_article(page)
+
+        # 等编辑器真正 ready（关键修复：点击占位 → 等 iframe）
+        title, frame = wait_editor_ready(page)
+
+        # 填标题
+        fill_title(page, "从神经网络到智能奇点")
+
+        # 插入正文 HTML（你的微信化 HTML）
+        content_html = '<p><strong>自动插入测试</strong>：你好，学术灰。</p>'
+        insert_html(frame, content_html)
+
+        # 后续：封面 / 保存草稿 / 预览 / 发表…
+        # ...
+
+        input("检查无误后回车退出…")
+        ctx.close()
+
+if __name__ == "__main__":
+    main()
+```
+
+### 要点对应你的报错
+
+* **“编辑器查找 found: False”**：因为你停留在 `home/index` 或未切到**新打开的编辑页**。上面用 `context.expect_page()` 兜住了。
+* **“直接打开编辑器 URL 也不行”**：大概率被重定向（token/上下文）。正确姿势是**通过菜单跳转**。
+* **“content 未找到”**：正文一开始是**占位 div**，必须**点击后等待 `iframe[id^=ueditor]`**，再用 `frame_locator` 进入 frame 操作 `body`。
+
+---
+
+### 额外建议
+
+* 你已经拿到了标题/作者/正文的 XPath，那是**在编辑页 DOM**里；用上面这套“菜单跳转 + 监听新页 + 点击占位 → 切 frame”后，就能稳定命中。
+* 如果“新的创作”菜单的结构又变了，可以改成更粗暴但稳定的：左侧“内容管理 → 素材库 → 新建图文”。
+* **强烈建议**：图片/公式先走**微信上传接口**拿 URL，再插入 HTML，发表成功率更高。
+
+把这段替换你现在“步骤 3/4”的逻辑，再跑一遍；如果还卡住，给我你实际后台页面的一个 DOM 结构截图（“新的创作”和编辑器上半部分），我帮你把选择器精确到你账号的版本。

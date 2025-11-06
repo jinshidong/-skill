@@ -1,6 +1,6 @@
-# 微信公众号发布指南
+# 微信公众号发表指南
 
-本文档介绍如何使用 Playwright 自动化发布微信公众号文章。
+本文档介绍如何使用 Playwright 自动化发表微信公众号文章。
 
 ## 功能特性
 
@@ -8,7 +8,7 @@
 - ✅ **智能编辑器查找**（基于实际 DOM 结构，支持 uEditor/edui1）
 - ✅ **自动填充标题和作者**（从 Markdown front matter 提取）
 - ✅ **自动插入 HTML 内容**到编辑器正文
-- ✅ **支持定时发布**（多任务批量定时）
+- ✅ **支持定时发表**（多任务批量定时）
 - ✅ **支持多种风格模板**
 - ✅ **交互模式**（手动操作和调试）
 
@@ -32,7 +32,7 @@ playwright install
 
 ### 首次使用：设置登录
 
-1. **运行发布脚本（首次会打开浏览器）**：
+1. **运行发表脚本（首次会打开浏览器）**：
 
 ```bash
 python publish_wechat.py --interactive
@@ -47,12 +47,12 @@ python publish_wechat.py --interactive
    - 登录信息保存在 `./tmp_profile` 目录（默认）
    - 后续运行会自动使用该登录态
 
-### 发布文章
+### 发表文章
 
-#### 方式一：直接发布（推荐）
+#### 方式一：直接发表（推荐）
 
 ```bash
-# 基本发布（自动填充标题、作者和正文）
+# 基本发表（自动填充标题、作者和正文）
 python publish_wechat.py article.md
 
 # 指定风格
@@ -62,7 +62,7 @@ python publish_wechat.py article.md --style festival
 python publish_wechat.py article.md --no-clear
 ```
 
-**发布流程**：
+**发表流程**：
 1. 自动打开浏览器并加载编辑器
 2. **自动填充标题**（从 Markdown front matter 的 `title` 字段提取）
 3. **自动填充作者**（从 Markdown front matter 的 `author` 字段提取）
@@ -70,37 +70,37 @@ python publish_wechat.py article.md --no-clear
 5. 保持浏览器打开，您可以：
    - 检查内容
    - 手动调整格式
-   - **手动点击"发布"或"群发"按钮**
+   - **手动点击"发表"或"群发"按钮**
 
-#### 方式二：仅插入内容（需要手动发布）
+#### 方式二：仅插入内容（需要手动发表）
 
 ```bash
 python publish_wechat.py article.md --no-clear
 ```
 
-脚本会执行相同的填充和插入操作，但不自动发布。
+脚本会执行相同的填充和插入操作，但不自动发表。
 
-#### 方式三：定时发布
+#### 方式三：定时发表
 
 ```bash
-# 今天 20:30 定时发布（默认日期为今天）
+# 今天 20:30 定时发表（默认日期为今天）
 python publish_wechat.py article.md \
     --auto-publish \
     --scheduled-time "20:30"
 
-# 明天 20:30 定时发布
+# 明天 20:30 定时发表
 python publish_wechat.py article.md \
     --auto-publish \
     --scheduled-date "tomorrow" \
     --scheduled-time "20:30"
 
-# 指定日期发布（如 2024-12-25 20:30）
+# 指定日期发表（如 2024-12-25 20:30）
 python publish_wechat.py article.md \
     --auto-publish \
     --scheduled-date "2024-12-25" \
     --scheduled-time "20:30"
 
-# 定时发布并启用群发通知
+# 定时发表并启用群发通知
 python publish_wechat.py article.md \
     --auto-publish \
     --scheduled-date "tomorrow" \
@@ -108,31 +108,31 @@ python publish_wechat.py article.md \
     --enable-group-notify
 ```
 
-**定时发布流程**：
+**定时发表流程**：
 1. 自动打开浏览器并加载编辑器
 2. 自动填充标题、作者和正文
-3. 自动点击"发布"按钮
+3. 自动点击"发表"按钮
 4. **自动打开"定时发表"开关**
 5. **自动选择日期**（今天、明天或指定日期）
-6. **自动设置发布时间**（如 20:30）
+6. **自动设置发表时间**（如 20:30）
 7. 群发通知开关默认关闭（可通过 `--enable-group-notify` 启用）
-8. 浏览器保持打开，您可以检查设置后手动确认发布
+8. 浏览器保持打开，您可以检查设置后手动确认发表
 
 **日期和时间格式**：
 - `--scheduled-date`：
-  - `today` 或 `今天` - 今天发布
-  - `tomorrow` 或 `明天` - 明天发布
+  - `today` 或 `今天` - 今天发表
+  - `tomorrow` 或 `明天` - 明天发表
   - `YYYY-MM-DD` - 指定日期，如 `2024-12-25`
   - 如果不指定，默认为 `today`
 - `--scheduled-time`：格式为 `HH:MM`，如 `20:30`、`09:00`
 - 支持选择七天内的时间（微信公众号限制）
 
 **注意事项**：
-- 建议配合 `--auto-publish` 使用，否则需要手动点击发布按钮
+- 建议配合 `--auto-publish` 使用，否则需要手动点击发表按钮
 - 微信公众号只支持选择七天内的时间
 - 日期选择器会自动显示"今天"、"明天"和未来几天的日期选项
 
-## 定时发布
+## 定时发表
 
 ### 使用配置文件
 
@@ -161,7 +161,7 @@ python publish_wechat.py article.md \
 }
 ```
 
-运行定时发布器：
+运行定时发表器：
 
 ```bash
 python schedule_publish.py --config publish_config.json
@@ -194,7 +194,7 @@ usage: publish_wechat.py [-h] [--style {academic_gray,festival,tech,announcement
                           [--scheduled-date SCHEDULED_DATE] [--enable-group-notify]
                           [--interactive] [md_file]
 
-发布 Markdown 文章到微信公众号
+发表 Markdown 文章到微信公众号
 
 positional arguments:
   md_file               Markdown 文件路径
@@ -205,9 +205,9 @@ optional arguments:
   -d, --user-data-dir    浏览器用户数据目录（默认: ./tmp_profile）
   --headless             使用无头模式（不显示浏览器窗口）
   --no-clear             不清空编辑器，在现有内容后追加
-  --auto-publish         自动发布（不推荐，存在风险）
-  --scheduled-time       定时发布时间，格式 HH:MM，如 20:30
-  --scheduled-date       定时发布日期，格式 YYYY-MM-DD 或 today 或 tomorrow（默认: today）
+  --auto-publish         自动发表（不推荐，存在风险）
+  --scheduled-time       定时发表时间，格式 HH:MM，如 20:30
+  --scheduled-date       定时发表日期，格式 YYYY-MM-DD 或 today 或 tomorrow（默认: today）
   --enable-group-notify  启用群发通知（默认不启用）
   -i, --interactive      交互模式：仅打开浏览器，不插入内容
 ```
@@ -220,29 +220,29 @@ usage: schedule_publish.py [-h] [--config CONFIG] [--md-file MD_FILE]
                             [--list] [--check-interval CHECK_INTERVAL]
                             [--auto-publish]
 
-定时发布微信公众号文章
+定时发表微信公众号文章
 
 optional arguments:
   -h, --help            显示帮助信息
   -c, --config           配置文件路径（JSON 格式）
   -f, --md-file          Markdown 文件路径
-  -t, --publish-time     发布时间（格式：YYYY-MM-DD HH:MM:SS）
+  -t, --publish-time     发表时间（格式：YYYY-MM-DD HH:MM:SS）
   -s, --style            HTML 风格
   -l, --list             列出所有任务
   -i, --check-interval   检查间隔（秒，默认 60）
-  --auto-publish         自动发布（不推荐）
+  --auto-publish         自动发表（不推荐）
 ```
 
 ## 使用示例
 
-### 示例 1：发布单篇文章
+### 示例 1：发表单篇文章
 
 ```bash
-# 转换并发布
+# 转换并发表
 python publish_wechat.py examples/2020-05-22-blog-post-13.md --style academic_gray
 ```
 
-### 示例 2：定时发布多篇文章
+### 示例 2：定时发表多篇文章
 
 创建 `my_publish_config.json`：
 
@@ -285,24 +285,24 @@ python publish_wechat.py --interactive
    - 登录态保存在 `user_data_dir` 目录
    - 不要删除该目录，否则需要重新登录
 
-2. **自动发布风险**：
-   - `--auto-publish` 选项会自动点击发布按钮
-   - 建议不要使用，存在误发布风险
-   - 推荐做法：插入内容后手动确认发布
+2. **自动发表风险**：
+   - `--auto-publish` 选项会自动点击发表按钮
+   - 建议不要使用，存在误发表风险
+   - 推荐做法：插入内容后手动确认发表
 
 3. **编辑器选择器**：
    - 微信公众号后台 DOM 结构可能变化
    - 如果插入失败，可能需要更新选择器
    - 可以查看 `src/wechat_publisher.py` 中的 `JS_FIND_EDITOR` 和 `JS_INSERT_AT_CURSOR`
 
-4. **定时发布**：
-   - 定时发布器需要持续运行
+4. **定时发表**：
+   - 定时发表器需要持续运行
    - 建议在服务器或后台运行
    - 可以使用 `screen` 或 `tmux` 保持会话
 
 5. **合规性**：
    - 遵守微信公众平台规则
-   - 不要批量自动化发布
+   - 不要批量自动化发表
    - 确保内容经过人工审核
 
 ### 故障排查
@@ -357,7 +357,7 @@ publish_wechat.py (命令行工具)
     ↓
 wechat_publisher.py (核心模块)
     ├── WeChatPublisher (浏览器控制)
-    ├── publish_from_markdown (发布流程)
+    ├── publish_from_markdown (发表流程)
     │   ├── 提取标题和作者 (从 Markdown front matter)
     │   └── 转换 HTML (WeChatHTMLConverter)
     └── JavaScript 注入 (DOM 操作)
@@ -376,7 +376,7 @@ md2wechat.py (Markdown 转换)
 6. **转换 Markdown**：调用 `WeChatHTMLConverter` 生成 HTML
 7. **填充标题和作者**：自动填充到对应的输入框
 8. **插入 HTML**：使用 JavaScript 注入到正文编辑器
-9. **发布**（可选）：查找并点击发布按钮
+9. **发表**（可选）：查找并点击发表按钮
 
 #### JavaScript 注入
 
@@ -428,7 +428,7 @@ const eduiSelectors = [
 ];
 ```
 
-### 自定义发布按钮选择器
+### 自定义发表按钮选择器
 
 修改 `JS_FIND_PUBLISH_BUTTON` 中的选择器列表。
 

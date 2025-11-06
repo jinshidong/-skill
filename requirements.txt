@@ -11,7 +11,7 @@ pygments>=2.7.0
 matplotlib>=3.3.0
 sympy>=1.7.0
 
-# Playwright (用于微信公众号发布)
+# Playwright (用于微信公众号发表)
 # 安装后需要运行: playwright install
 playwright>=1.40.0
 

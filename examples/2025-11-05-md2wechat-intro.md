@@ -97,7 +97,7 @@ MD2WeChat 支持将 Mermaid 图表转换为 PNG 图片并嵌入：
 graph LR
     A[Markdown] -->|转换| B[HTML]
     B -->|复制| C[公众号编辑器]
-    C -->|发布| D[完美呈现]
+    C -->|发表| D[完美呈现]
 ```
 
 **Mermaid 特性**：
@@ -288,7 +288,7 @@ MD2WeChat/
 ### 产品介绍与科技文章
 
 使用 `tech` 主题，适合：
-- 产品发布和功能介绍
+- 产品发表和功能介绍
 - 科技新闻和行业分析
 - 技术产品评测
 
@@ -421,7 +421,7 @@ MD2WeChat 是一款专为微信公众号内容创作设计的 Markdown 转 HTML 
 graph LR
     A[Markdown 源文件] -->|MD2WeChat 转换| B[微信公众号 HTML]
     B -->|复制粘贴| C[公众号编辑器]
-    C -->|发布| D[完美呈现]
+    C -->|发表| D[完美呈现]
     
     style A fill:#e3f2fd
     style B fill:#fff3e0

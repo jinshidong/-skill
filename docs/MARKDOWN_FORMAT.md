@@ -30,7 +30,7 @@ tags:
   - 必须使用双引号包裹
   - 示例：`title: "MD2WeChat：Markdown 转微信公众号 HTML 转换工具"`
 
-- **`date`** (日期字符串)：发布日期
+- **`date`** (日期字符串)：发表日期
   - 格式：`YYYY-MM-DD`
   - 示例：`date: 2025-11-05`
 

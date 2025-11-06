@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-微信公众号发布命令行工具
+微信公众号发表命令行工具
 
-将 Markdown 文件转换为 HTML 并发布到微信公众号。
+将 Markdown 文件转换为 HTML 并发表到微信公众号。
 """
 
 import sys
@@ -22,11 +22,11 @@ from wechat_publisher import publish_from_markdown, WeChatPublisher  # type: ign
 def main():
     """命令行入口"""
     parser = argparse.ArgumentParser(
-        description="发布 Markdown 文章到微信公众号",
+        description="发表 Markdown 文章到微信公众号",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  # 基本发布（需要手动确认）
+  # 基本发表（需要手动确认）
   python publish_wechat.py article.md
 
   # 指定风格
@@ -72,17 +72,17 @@ def main():
     parser.add_argument(
         "--auto-publish",
         action="store_true",
-        help="自动发布（不推荐，存在风险）"
+        help="自动发表（不推荐，存在风险）"
     )
     parser.add_argument(
         "--scheduled-time",
         type=str,
-        help="定时发布时间，格式 HH:MM，如 20:30（需要配合 --auto-publish 使用）"
+        help="定时发表时间，格式 HH:MM，如 20:30（需要配合 --auto-publish 使用）"
     )
     parser.add_argument(
         "--scheduled-date",
         type=str,
-        help="定时发布日期，格式 YYYY-MM-DD 或 today 或 tomorrow，如 2024-12-25。默认为 today"
+        help="定时发表日期，格式 YYYY-MM-DD 或 today 或 tomorrow，如 2024-12-25。默认为 today"
     )
     parser.add_argument(
         "--enable-group-notify",
@@ -162,8 +162,8 @@ def main():
         print(f"错误: 文件不存在: {md_file}")
         return 1
     
-    # 发布
-    print(f"正在发布: {md_file}")
+    # 发表
+    print(f"正在发表: {md_file}")
     print(f"风格: {args.style}")
     print(f"用户数据目录: {args.user_data_dir}")
     print()
@@ -214,22 +214,22 @@ def main():
     )
     
     if result.get("ok"):
-        print("\n✅ 发布成功！")
+        print("\n✅ 发表成功！")
         if result.get("content_length"):
             print(f"   编辑器内容长度: {result['content_length']} 字符")
         if result.get("publish"):
             publish_info = result['publish']
-            print(f"   发布状态: {publish_info.get('message', '未知')}")
+            print(f"   发表状态: {publish_info.get('message', '未知')}")
             if publish_info.get("scheduled_time"):
                 date_str = publish_info.get("scheduled_date", "today")
                 if date_str == "today":
                     date_str = "今天"
                 elif date_str == "tomorrow":
                     date_str = "明天"
-                print(f"   定时发布时间: {date_str} {publish_info['scheduled_time']}")
+                print(f"   定时发表时间: {date_str} {publish_info['scheduled_time']}")
         return 0
     else:
-        print(f"\n❌ 发布失败: {result.get('error', '未知错误')}")
+        print(f"\n❌ 发表失败: {result.get('error', '未知错误')}")
         return 1
 
 

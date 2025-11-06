@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-定时发布脚本
+定时发表脚本
 
-支持定时发布微信公众号文章，可以设置发布时间和 Markdown 文件。
+支持定时发表微信公众号文章，可以设置发表时间和 Markdown 文件。
 """
 
 import sys
@@ -30,11 +30,11 @@ logger = logging.getLogger(__name__)
 
 
 class ScheduledPublisher:
-    """定时发布器"""
+    """定时发表器"""
     
     def __init__(self, config_file: Optional[str] = None):
         """
-        初始化定时发布器
+        初始化定时发表器
         
         Args:
             config_file: 配置文件路径（JSON 格式）
@@ -83,15 +83,15 @@ class ScheduledPublisher:
         auto_publish: bool = False
     ):
         """
-        添加发布任务
+        添加发表任务
         
         Args:
             md_file: Markdown 文件路径
-            publish_time: 发布时间（格式：YYYY-MM-DD HH:MM:SS）
+            publish_time: 发表时间（格式：YYYY-MM-DD HH:MM:SS）
             style: HTML 风格
             user_data_dir: 浏览器用户数据目录
             clear_editor: 是否先清空编辑器
-            auto_publish: 是否自动发布
+            auto_publish: 是否自动发表
         """
         try:
             publish_dt = datetime.strptime(publish_time, "%Y-%m-%d %H:%M:%S")
@@ -107,18 +107,18 @@ class ScheduledPublisher:
             self.tasks.append(task)
             logger.info(f"添加任务: {md_file} -> {publish_time}")
         except ValueError as e:
-            logger.error(f"发布时间格式错误: {e}")
+            logger.error(f"发表时间格式错误: {e}")
             raise
     
     def run(self, check_interval: int = 60):
         """
-        运行定时发布器
+        运行定时发表器
         
         Args:
             check_interval: 检查间隔（秒）
         """
-        logger.info(f"定时发布器启动，检查间隔: {check_interval} 秒")
-        logger.info(f"当前有 {len(self.tasks)} 个待发布任务")
+        logger.info(f"定时发表器启动，检查间隔: {check_interval} 秒")
+        logger.info(f"当前有 {len(self.tasks)} 个待发表任务")
         
         while self.tasks:
             now = datetime.now()
@@ -127,24 +127,24 @@ class ScheduledPublisher:
             for task in self.tasks:
                 publish_dt = task["publish_datetime"]
                 
-                # 检查是否到了发布时间
+                # 检查是否到了发表时间
                 if now >= publish_dt:
-                    logger.info(f"开始发布任务: {task['md_file']} (计划时间: {task['publish_time']})")
+                    logger.info(f"开始发表任务: {task['md_file']} (计划时间: {task['publish_time']})")
                     
                     try:
                         result = publish_from_markdown(
                             md_file=task["md_file"],
                             user_data_dir=task["user_data_dir"],
                             style=task["style"],
-                            headless=False,  # 定时发布建议显示浏览器
+                            headless=False,  # 定时发表建议显示浏览器
                             clear_editor=task["clear_editor"],
                             auto_publish=task["auto_publish"]
                         )
                         
                         if result.get("ok"):
-                            logger.info(f"任务发布成功: {task['md_file']}")
+                            logger.info(f"任务发表成功: {task['md_file']}")
                         else:
-                            logger.error(f"任务发布失败: {task['md_file']}, 错误: {result.get('error')}")
+                            logger.error(f"任务发表失败: {task['md_file']}, 错误: {result.get('error')}")
                         
                         completed_tasks.append(task)
                     except Exception as e:
@@ -167,17 +167,17 @@ class ScheduledPublisher:
             time.sleep(check_interval)
     
     def list_tasks(self):
-        """列出所有待发布任务"""
+        """列出所有待发表任务"""
         if not self.tasks:
-            print("没有待发布任务")
+            print("没有待发表任务")
             return
         
-        print(f"\n当前有 {len(self.tasks)} 个待发布任务:\n")
+        print(f"\n当前有 {len(self.tasks)} 个待发表任务:\n")
         for i, task in enumerate(self.tasks, 1):
             print(f"{i}. {task['md_file']}")
-            print(f"   发布时间: {task['publish_time']}")
+            print(f"   发表时间: {task['publish_time']}")
             print(f"   风格: {task['style']}")
-            print(f"   自动发布: {task['auto_publish']}")
+            print(f"   自动发表: {task['auto_publish']}")
             print()
 
 
@@ -185,14 +185,14 @@ def main():
     """命令行入口"""
     import argparse
     
-    parser = argparse.ArgumentParser(description="定时发布微信公众号文章")
+    parser = argparse.ArgumentParser(description="定时发表微信公众号文章")
     parser.add_argument("--config", "-c", help="配置文件路径（JSON 格式）")
     parser.add_argument("--md-file", "-f", help="Markdown 文件路径")
-    parser.add_argument("--publish-time", "-t", help="发布时间（格式：YYYY-MM-DD HH:MM:SS）")
+    parser.add_argument("--publish-time", "-t", help="发表时间（格式：YYYY-MM-DD HH:MM:SS）")
     parser.add_argument("--style", "-s", default="academic_gray", help="HTML 风格")
     parser.add_argument("--list", "-l", action="store_true", help="列出所有任务")
     parser.add_argument("--check-interval", "-i", type=int, default=60, help="检查间隔（秒）")
-    parser.add_argument("--auto-publish", action="store_true", help="自动发布（不推荐）")
+    parser.add_argument("--auto-publish", action="store_true", help="自动发表（不推荐）")
     
     args = parser.parse_args()
     
@@ -221,9 +221,9 @@ def main():
         try:
             publisher.run(check_interval=args.check_interval)
         except KeyboardInterrupt:
-            logger.info("用户中断，退出定时发布器")
+            logger.info("用户中断，退出定时发表器")
     else:
-        logger.warning("没有待发布任务，退出")
+        logger.warning("没有待发表任务，退出")
         parser.print_help()
 
 
