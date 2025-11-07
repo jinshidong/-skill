@@ -708,6 +708,89 @@ class FormulaProcessor:
         return result
     
     @staticmethod
+    def _add_html_noise(html: str) -> str:
+        """
+        为HTML添加噪声，包括零宽字符、随机空格等，以避免被微信公众号过滤
+        
+        Args:
+            html: 原始HTML字符串
+        
+        Returns:
+            添加噪声后的HTML字符串
+        """
+        import random
+        
+        ZERO_WIDTH_NON_JOINER = '\u200C'  # 零宽不连字
+        ZERO_WIDTH_SPACE = '\u200B'  # 零宽空格
+        ZERO_WIDTH_JOINER = '\u200D'  # 零宽连字
+        
+        result = []
+        i = 0
+        in_tag = False
+        in_quotes = False
+        quote_char = None
+        zw_chars = [ZERO_WIDTH_NON_JOINER, ZERO_WIDTH_SPACE, ZERO_WIDTH_JOINER]
+        # 跟踪最近几个字符，避免在关键位置插入零宽字符
+        recent_chars = []
+        
+        while i < len(html):
+            char = html[i]
+            recent_chars.append(char)
+            if len(recent_chars) > 5:
+                recent_chars.pop(0)
+            
+            # 检测HTML标签
+            if char == '<' and not in_quotes:
+                in_tag = True
+                result.append(char)
+            elif char == '>' and not in_quotes:
+                in_tag = False
+                result.append(char)
+                # 在标签结束后随机插入零宽字符（行内公式增加概率）
+                if random.random() < 0.5:  # 50%概率（提高以增加噪声）
+                    result.append(random.choice(zw_chars))
+                    # 有时插入多个零宽字符
+                    if random.random() < 0.3:
+                        result.append(random.choice(zw_chars))
+            # 检测引号（属性值）
+            elif char in ['"', "'"] and in_tag:
+                if not in_quotes:
+                    in_quotes = True
+                    quote_char = char
+                    result.append(char)
+                elif char == quote_char:
+                    in_quotes = False
+                    quote_char = None
+                    result.append(char)
+                    # 在属性值结束后随机插入零宽字符（增加概率）
+                    if random.random() < 0.4:  # 40%概率（提高以增加噪声）
+                        result.append(random.choice(zw_chars))
+                        # 有时插入多个零宽字符
+                        if random.random() < 0.3:
+                            result.append(random.choice(zw_chars))
+                else:
+                    result.append(char)
+            else:
+                result.append(char)
+                # 在标签内的属性名和值之间随机插入零宽字符（增加概率）
+                # 但避免在 src=、href=、alt= 等关键属性后立即插入
+                if in_tag and not in_quotes:
+                    # 检查是否是关键属性（src, href, alt等）的等号后
+                    # 如果最近几个字符包含 "src="、"href=" 等，不要插入零宽字符
+                    recent_str = ''.join(recent_chars)
+                    is_key_attr = any(key_attr in recent_str.lower() for key_attr in ['src=', 'href=', 'alt=', 'title=', 'data:'])
+                    
+                    if not is_key_attr and char in ['=', ' '] and random.random() < 0.3:  # 30%概率（提高）
+                        result.append(random.choice(zw_chars))
+                        # 有时插入多个零宽字符
+                        if random.random() < 0.2:
+                            result.append(random.choice(zw_chars))
+            
+            i += 1
+        
+        return ''.join(result)
+    
+    @staticmethod
     def _add_noise_to_image(base64_data_url: str, noise_intensity: float = 0.5) -> str:
         """
         为图片添加微小噪声，增加数据量以避免被微信公众号移除
@@ -745,15 +828,51 @@ class FormulaProcessor:
             # 转换为 numpy 数组
             img_array = np.array(img, dtype=np.float32)
             
-            # 添加微小的高斯噪声（只对非透明像素添加）
-            # 噪声强度很小，不会影响视觉效果
-            noise = np.random.normal(0, noise_intensity, img_array.shape).astype(np.float32)
+            # 添加较大的高斯噪声（只对非透明像素添加）
+            # 使用更大的噪声强度，增加数据量以避免被微信公众号过滤
+            # 噪声强度根据参数调整，范围通常在 0.8-1.2 之间
+            noise_std = noise_intensity * 2.0  # 放大噪声标准差
+            noise = np.random.normal(0, noise_std, img_array.shape).astype(np.float32)
             
             # 只对非透明像素添加噪声（alpha > 0）
             alpha_mask = img_array[:, :, 3:4] > 0
+            # 对RGB通道添加噪声，保持alpha通道不变
             img_array[:, :, :3] = np.where(alpha_mask, 
                                            np.clip(img_array[:, :, :3] + noise[:, :, :3], 0, 255), 
                                            img_array[:, :, :3])
+            
+            # 额外添加一些随机像素点（增加数据量）
+            # 对于行内公式，增加随机像素点的比例
+            if noise_intensity > 0.5:
+                # 在非透明区域随机添加随机像素（行内公式使用更高的比例）
+                pixel_ratio = 0.005 if noise_intensity > 0.7 else 0.002  # 行内公式0.5%，块级公式0.2%
+                random_mask = np.random.random(img_array.shape[:2]) < pixel_ratio
+                random_mask = random_mask & (img_array[:, :, 3] > 0)  # 只在非透明区域
+                if np.any(random_mask):
+                    random_colors = np.random.randint(0, 256, size=(*img_array.shape[:2], 3), dtype=np.uint8)
+                    img_array[:, :, :3] = np.where(
+                        np.stack([random_mask] * 3, axis=2),
+                        random_colors,
+                        img_array[:, :, :3]
+                    )
+            
+            # 对于行内公式，额外添加一些边缘像素噪声
+            if noise_intensity > 0.7:
+                # 在图片边缘添加一些噪声像素
+                h, w = img_array.shape[:2]
+                edge_mask = np.zeros((h, w), dtype=bool)
+                edge_mask[0:2, :] = True  # 顶部边缘
+                edge_mask[-2:, :] = True  # 底部边缘
+                edge_mask[:, 0:2] = True  # 左侧边缘
+                edge_mask[:, -2:] = True  # 右侧边缘
+                edge_mask = edge_mask & (img_array[:, :, 3] > 0)
+                if np.any(edge_mask):
+                    edge_noise = np.random.normal(0, noise_std * 0.5, img_array.shape).astype(np.float32)
+                    img_array[:, :, :3] = np.where(
+                        np.stack([edge_mask] * 3, axis=2),
+                        np.clip(img_array[:, :, :3] + edge_noise[:, :, :3], 0, 255),
+                        img_array[:, :, :3]
+                    )
             
             # 转换回 uint8
             img_array = np.clip(img_array, 0, 255).astype(np.uint8)
@@ -808,10 +927,6 @@ class FormulaProcessor:
                 print(f"Warning: Failed to render formula with sympy/matplotlib: {e2}")
                 # 返回占位符
                 return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-        
-        # 对于内联公式，添加微小噪声以增加数据量，避免被微信公众号移除
-        if is_inline:
-            result = self._add_noise_to_image(result, noise_intensity=0.3)
         
         return result
     
@@ -1103,14 +1218,12 @@ class FormulaProcessor:
             latex: LaTeX 公式代码
         
         Returns:
-            HTML span 标签（内联显示，base64 嵌入，带米黄色背景以避免被微信公众号移除）
+            HTML span 标签（内联显示，base64 嵌入，带米黄色背景）
         """
         data_url = self.render_latex_to_base64(latex, is_inline=True)
-        # 行内公式样式：使用 span 包裹，添加米黄色背景以避免被微信公众号移除小图片
-        # inline-block 确保不换行，vertical-align 与文本对齐，限制高度
-        # 宽度自适应内容，不设置 max-width，让图片自然宽度显示
-        # 添加米黄色背景（#FFF8DC）和内边距，使图片更明显
-        return f'<span style="display:inline-block;vertical-align:middle;background-color:#FFF8DC;padding:2px 4px;border-radius:3px;"><img src="{data_url}" style="display:inline-block;vertical-align:middle;max-height:1.2em;height:auto;width:auto;"></span>'
+        # 行内公式样式：使用 span 包裹，添加米黄色背景
+        html = f'<span style="display:inline-block;vertical-align:middle;background-color:#FFF8DC;padding:2px 4px;border-radius:3px;"><img src="{data_url}" style="display:inline-block;vertical-align:middle;max-height:1.2em;height:auto;width:auto;"></span>'
+        return html
     
     def format_block_formula(self, latex: str) -> str:
         """
@@ -1120,13 +1233,14 @@ class FormulaProcessor:
             latex: LaTeX 公式代码
         
         Returns:
-            HTML 段落标签（居中显示，base64 嵌入，带米黄色背景强调）
+            HTML 段落标签（居中显示，base64 嵌入，带米黄色背景）
         """
         data_url = self.render_latex_to_base64(latex, is_inline=False)
         # 块级公式使用米黄色背景（#FFF8DC）来强调，添加内边距和圆角
-        return f'''<div style="text-align:center;background-color:#FFF8DC;padding:10px;border-radius:6px;margin:10px 0;">
+        html = f'''<div style="text-align:center;background-color:#FFF8DC;padding:10px;border-radius:6px;margin:10px 0;">
   <img src="{data_url}" style="width:auto;max-width:90%;">
 </div><br>'''
+        return html
     
     def cleanup_temp_files(self):
         """清理临时文件"""
@@ -1566,11 +1680,13 @@ class WeChatHTMLConverter:
                 i += 1
                 continue
             
-            # 公式块 $$
-            if line.strip().startswith('$$'):
+            # 公式块 $$（需要在列表项之前检查，以便在列表项中也能识别）
+            # 检查整行是否是公式块（单行 $$...$$ 或多行开始/结束）
+            stripped_line = line.strip()
+            if stripped_line.startswith('$$'):
                 if not in_formula:
                     in_formula = True
-                    content = line.strip()[2:]
+                    content = stripped_line[2:]
                     if content.endswith('$$'):
                         # 单行 $$...$$
                         content = content[:-2]
@@ -1584,7 +1700,7 @@ class WeChatHTMLConverter:
                 else:
                     # 结束
                     content = '\n'.join(buf_formula)
-                    tail = line.strip()
+                    tail = stripped_line
                     if tail != '$$':
                         # 容错：末行可能还有内容
                         # 移除末尾的 $$，但保留其他内容
@@ -1604,6 +1720,32 @@ class WeChatHTMLConverter:
                 continue
             if in_formula:
                 buf_formula.append(line)
+                i += 1
+                continue
+            
+            # 检查段落中是否包含单行块级公式 $$...$$（不在行首的情况）
+            # 这需要在段落处理之前检查，以便正确提取公式
+            # 使用更精确的正则表达式，匹配 $$...$$ 但不匹配 $$$...$$$ 或更多 $
+            para_formula_match = re.search(r'(?<!\$)\$\$((?:[^$]|\$(?!\$))+)\$\$(?!\$)', line)
+            if para_formula_match and not in_code and not in_formula:
+                # 在段落中找到公式，需要分割段落
+                formula_content = para_formula_match.group(1).strip()
+                before_formula = line[:para_formula_match.start()].rstrip()
+                after_formula = line[para_formula_match.end():].lstrip()
+                
+                # 如果公式前有内容，先添加为段落
+                if before_formula.strip():
+                    parabuf.append(before_formula)
+                    flush_para_buffer(parabuf)
+                
+                # 添加公式
+                flush_para_buffer(parabuf)
+                (cur['items'] if cur else preface).append(('formula', formula_content))
+                
+                # 如果公式后有内容，继续处理
+                if after_formula.strip():
+                    parabuf.append(after_formula)
+                
                 i += 1
                 continue
             
@@ -1675,6 +1817,7 @@ class WeChatHTMLConverter:
                 marker = list_match.group(2)
                 item_text = list_match.group(3)
                 is_ordered = marker not in ['-', '*', '+']
+                # 保持列表项完整，公式在渲染时处理
                 (cur['items'] if cur else preface).append(('list_item', item_text, indent, is_ordered))
                 i += 1
                 continue
@@ -1735,6 +1878,45 @@ class WeChatHTMLConverter:
                 parabuf.append('')
                 i += 1
                 continue
+            
+            # 检查是否是列表项的延续行（列表项内容中的换行，不应该被识别为新列表项）
+            # 这需要检查前一个 item 是否是列表项，且当前行不是新的列表项标记
+            if (cur and cur['items'] or preface):
+                # 检查最后一个 item 是否是列表项
+                last_items = cur['items'] if cur else preface
+                if last_items:
+                    last_item = last_items[-1]
+                    if isinstance(last_item, tuple) and len(last_item) > 0 and last_item[0] == 'list_item':
+                        # 前一个是列表项，检查当前行是否是延续
+                        line_stripped = line.lstrip()
+                        line_indent = len(line) - len(line_stripped)
+                        list_indent = last_item[2] if len(last_item) > 2 else 0
+                        
+                        # 检查是否是列表标记（新的列表项）
+                        is_list_marker = bool(re.match(r'^([-*+]|\d+\.)\s+', line_stripped))
+                        
+                        # 检查是否是其他特殊格式（标题、代码块开始、图片等）
+                        is_special_format = (
+                            _ATX_H_RE.match(line) or  # 标题
+                            line.lstrip().startswith('```') or  # 代码块
+                            line.lstrip().startswith('$$') or  # 公式块
+                            line.strip().startswith('![') or  # 图片
+                            ('|' in line and line.strip().startswith('|') and line.strip().endswith('|'))  # 表格
+                        )
+                        
+                        # 如果是延续行（不是列表标记，不是特殊格式，且不是空行），合并到前一个列表项
+                        # 条件：缩进大于等于列表项缩进，或者 parabuf 为空（紧跟在列表项后面）
+                        if not is_list_marker and not is_special_format and line_stripped:
+                            # 检查缩进：如果缩进大于列表项缩进，或者是紧跟在列表项后面（parabuf为空）
+                            if (line_indent > list_indent) or (not parabuf and line_indent >= list_indent):
+                                # 这是列表项的延续内容，合并到前一个列表项
+                                last_item_text = last_item[1] if len(last_item) > 1 else ""
+                                # 更新列表项文本，添加换行和延续内容
+                                new_item_text = last_item_text + "\n" + line_stripped
+                                # 替换最后一个 item
+                                last_items[-1] = ('list_item', new_item_text, list_indent, last_item[3] if len(last_item) > 3 else False)
+                                i += 1
+                                continue
             
             # 普通文本
             parabuf.append(line)
@@ -1841,6 +2023,14 @@ class WeChatHTMLConverter:
         """转换单个章节为 HTML（H2 和 H3 都可以作为分块）"""
         html_parts = []
         
+        # 检测是否为参考文献部分
+        is_reference_section = False
+        if title:
+            title_lower = title.strip().lower()
+            # 支持多种参考文献标题格式
+            reference_keywords = ['参考文献', 'references', '参考', 'reference', 'bibliography', 'bibliographies']
+            is_reference_section = any(keyword in title_lower for keyword in reference_keywords)
+        
         # 输出标题
         if title and level > 0:
             html_parts.append(self._convert_heading(title, level))
@@ -1922,42 +2112,84 @@ class WeChatHTMLConverter:
             
             # 只有当有实际内容时才将内容包裹在卡片中
             if has_real_content and card_content:
-                card_html = f'<div style="background-color:{self.style_config.h2_h3_card_bg_color};border:1px solid {self.style_config.h2_h3_card_border_color};border-radius:8px;padding:12px 14px;margin:10px 0;line-height:1.9;">{"".join(card_content)}</div>'
+                # 如果是参考文献部分，添加小字体和浅色样式
+                if is_reference_section:
+                    # 参考文献部分：小字体（0.85em）和浅色（#888888）
+                    card_html = f'<div style="background-color:{self.style_config.h2_h3_card_bg_color};border:1px solid {self.style_config.h2_h3_card_border_color};border-radius:8px;padding:12px 14px;margin:10px 0;line-height:1.9;font-size:0.85em;color:#888888;">{"".join(card_content)}</div>'
+                else:
+                    card_html = f'<div style="background-color:{self.style_config.h2_h3_card_bg_color};border:1px solid {self.style_config.h2_h3_card_border_color};border-radius:8px;padding:12px 14px;margin:10px 0;line-height:1.9;">{"".join(card_content)}</div>'
                 html_parts.append(card_html)
         else:
             # 其他分块（如卷首语），正常输出内容
             # 卷首语中的图片不编号
-            for item_type, *item_data in content:
-                if item_type == "heading":
-                    # 子标题（H4+）
-                    heading_text = item_data[0] if len(item_data) > 0 else ""
-                    heading_level = item_data[1] if len(item_data) > 1 else 4
-                    html_parts.append(self._convert_heading(heading_text, heading_level))
-                elif item_type == "paragraph":
-                    html_parts.append(self._convert_paragraph(item_data[0]))
-                elif item_type == "code":
-                    code_content, code_language = item_data[0], item_data[1] if len(item_data) > 1 else ""
-                    html_parts.append(self.code_formatter.format_code_block(code_content, code_language))
-                elif item_type == "image":
-                    src = item_data[0] if len(item_data) > 0 else ""
-                    alt = item_data[1] if len(item_data) > 1 else ""
-                    title = item_data[2] if len(item_data) > 2 else ""
-                    # 卷首语中的图片不编号（传入 0）
-                    html_parts.append(self.image_processor.process_image(src, alt, title, 0))
-                elif item_type == "formula":
-                    html_parts.append(self.formula_processor.format_block_formula(item_data[0]))
-                elif item_type == "mermaid":
-                    html_parts.append(self.mermaid_processor.format_mermaid(item_data[0]))
-                elif item_type == "list":
-                    list_structure, is_ordered = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else False
-                    html_parts.append(self._convert_list(list_structure, is_ordered))
-                elif item_type == "table":
-                    table_rows, alignments = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else ['left']
-                    html_parts.append(self._convert_table(table_rows, alignments))
-                elif item_type == "horizontal_rule":
-                    html_parts.append(self._convert_horizontal_rule())
-                elif item_type == "empty":
-                    html_parts.append("<br>")
+            # 如果是参考文献部分，需要添加包装样式
+            if is_reference_section:
+                reference_content = []
+                for item_type, *item_data in content:
+                    if item_type == "heading":
+                        # 子标题（H4+）
+                        heading_text = item_data[0] if len(item_data) > 0 else ""
+                        heading_level = item_data[1] if len(item_data) > 1 else 4
+                        reference_content.append(self._convert_heading(heading_text, heading_level))
+                    elif item_type == "paragraph":
+                        reference_content.append(self._convert_paragraph(item_data[0]))
+                    elif item_type == "code":
+                        code_content, code_language = item_data[0], item_data[1] if len(item_data) > 1 else ""
+                        reference_content.append(self.code_formatter.format_code_block(code_content, code_language))
+                    elif item_type == "image":
+                        src = item_data[0] if len(item_data) > 0 else ""
+                        alt = item_data[1] if len(item_data) > 1 else ""
+                        title = item_data[2] if len(item_data) > 2 else ""
+                        # 卷首语中的图片不编号（传入 0）
+                        reference_content.append(self.image_processor.process_image(src, alt, title, 0))
+                    elif item_type == "formula":
+                        reference_content.append(self.formula_processor.format_block_formula(item_data[0]))
+                    elif item_type == "mermaid":
+                        reference_content.append(self.mermaid_processor.format_mermaid(item_data[0]))
+                    elif item_type == "list":
+                        list_structure, is_ordered = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else False
+                        reference_content.append(self._convert_list(list_structure, is_ordered))
+                    elif item_type == "table":
+                        table_rows, alignments = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else ['left']
+                        reference_content.append(self._convert_table(table_rows, alignments))
+                    elif item_type == "horizontal_rule":
+                        reference_content.append(self._convert_horizontal_rule())
+                    elif item_type == "empty":
+                        reference_content.append("<br>")
+                # 为参考文献内容添加小字体和浅色样式
+                html_parts.append(f'<div style="font-size:0.85em;color:#888888;line-height:1.9;">{"".join(reference_content)}</div>')
+            else:
+                for item_type, *item_data in content:
+                    if item_type == "heading":
+                        # 子标题（H4+）
+                        heading_text = item_data[0] if len(item_data) > 0 else ""
+                        heading_level = item_data[1] if len(item_data) > 1 else 4
+                        html_parts.append(self._convert_heading(heading_text, heading_level))
+                    elif item_type == "paragraph":
+                        html_parts.append(self._convert_paragraph(item_data[0]))
+                    elif item_type == "code":
+                        code_content, code_language = item_data[0], item_data[1] if len(item_data) > 1 else ""
+                        html_parts.append(self.code_formatter.format_code_block(code_content, code_language))
+                    elif item_type == "image":
+                        src = item_data[0] if len(item_data) > 0 else ""
+                        alt = item_data[1] if len(item_data) > 1 else ""
+                        title = item_data[2] if len(item_data) > 2 else ""
+                        # 卷首语中的图片不编号（传入 0）
+                        html_parts.append(self.image_processor.process_image(src, alt, title, 0))
+                    elif item_type == "formula":
+                        html_parts.append(self.formula_processor.format_block_formula(item_data[0]))
+                    elif item_type == "mermaid":
+                        html_parts.append(self.mermaid_processor.format_mermaid(item_data[0]))
+                    elif item_type == "list":
+                        list_structure, is_ordered = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else False
+                        html_parts.append(self._convert_list(list_structure, is_ordered))
+                    elif item_type == "table":
+                        table_rows, alignments = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else ['left']
+                        html_parts.append(self._convert_table(table_rows, alignments))
+                    elif item_type == "horizontal_rule":
+                        html_parts.append(self._convert_horizontal_rule())
+                    elif item_type == "empty":
+                        html_parts.append("<br>")
         
         return "".join(html_parts)
     
@@ -2073,15 +2305,130 @@ class WeChatHTMLConverter:
         1. **加粗文本**：描述 → 应用防换行处理（加粗+冒号）
         2. 普通文本：描述 → 应用防换行处理（无加粗但有冒号）
         3. 普通文本（无冒号） → 正常处理（不需要防换行）
+        4. 包含块级公式 $$...$$ → 提取公式并分别渲染
         
         Args:
             text: 列表项文本（Markdown 格式）
         
         Returns:
-            HTML 字符串
+            HTML 字符串（可能包含多个部分，用特殊标记分隔）
         """
         zw_char = '\u200c\u200d'  # 零宽字符组合
         
+        # 先检查是否包含块级公式 $$...$$
+        # 使用更精确的正则表达式，匹配 $$...$$ 但不匹配 $$$...$$$ 或更多 $
+        formula_match = re.search(r'(?<!\$)\$\$((?:[^$]|\$(?!\$))+)\$\$(?!\$)', text)
+        if formula_match:
+            # 找到公式，分割文本
+            formula_content = formula_match.group(1).strip()
+            before_formula = text[:formula_match.start()].rstrip()
+            after_formula = text[formula_match.end():].lstrip()
+            
+            # 检查公式前的文本是否包含加粗+冒号格式
+            # 如果包含，公式后的文本应该作为描述部分继续
+            bold_colon_pattern = r'(\*\*[^*]+\*\*[：:])(.*)'
+            bold_match = re.match(bold_colon_pattern, before_formula)
+            
+            result_parts = []
+            
+            if bold_match:
+                # 公式前有加粗+冒号格式
+                bold_part = bold_match.group(1)  # **text**：
+                desc_before = bold_match.group(2).strip()  # 公式前的描述部分
+                
+                # 处理加粗部分（包含冒号）
+                converted_bold = self._convert_inline_markdown(bold_part)
+                bold_html = converted_bold.replace('</strong>', f'{zw_char}</strong>')
+                if '：' in bold_html or ':' in bold_html:
+                    bold_html = re.sub(r'(</strong>)([：:])', lambda m: f'{m.group(1)}{zw_char}{zw_char}{zw_char}{m.group(2)}{zw_char}', bold_html)
+                    bold_html = re.sub(r'([^：:])([：:])', lambda m: f'{m.group(1)}{zw_char}{zw_char}{zw_char}{m.group(2)}{zw_char}', bold_html, count=1)
+                
+                # 组合：加粗部分 + 公式前的描述 + 公式 + 公式后的描述
+                desc_parts = []
+                if desc_before:
+                    desc_parts.append(self._convert_inline_markdown(desc_before))
+                
+                # 公式（换行显示，块级公式）
+                formula_html = self.formula_processor.format_block_formula(formula_content)
+                desc_parts.append(formula_html)
+                
+                # 公式后的文本作为描述部分继续
+                if after_formula:
+                    desc_parts.append(self._convert_inline_markdown(after_formula))
+                
+                # 组合所有部分
+                desc_html = ''.join(desc_parts)
+                if desc_before.startswith(' '):
+                    desc_html = '&nbsp;' + desc_html
+                
+                return f'<span style="white-space: nowrap;">{bold_html}</span>&nbsp;{desc_html}'
+            else:
+                # 公式前没有加粗+冒号格式，检查是否有普通冒号
+                colon_pos = -1
+                for i, char in enumerate(before_formula):
+                    if char in '：:':
+                        colon_pos = i
+                        break
+                
+                if colon_pos > 0:
+                    # 有冒号，分别处理标题和描述
+                    title_part = before_formula[:colon_pos + 1]
+                    desc_before = before_formula[colon_pos + 1:].strip()
+                    
+                    # 处理标题部分
+                    converted_title = self._convert_inline_markdown(title_part)
+                    title_html = re.sub(r'(</\w+>)([：:])', lambda m: f'{m.group(1)}{zw_char}{zw_char}{zw_char}{m.group(2)}{zw_char}', converted_title)
+                    if '：' in title_html or ':' in title_html:
+                        title_html = re.sub(r'(</\w+>)([：:])', lambda m: f'{m.group(1)}{zw_char}{zw_char}{zw_char}{m.group(2)}{zw_char}', title_html)
+                        title_html = re.sub(r'([^：:])([：:])', lambda m: f'{m.group(1)}{zw_char}{zw_char}{zw_char}{m.group(2)}{zw_char}', title_html, count=1)
+                    
+                    # 组合描述部分
+                    desc_parts = []
+                    if desc_before:
+                        desc_parts.append(self._convert_inline_markdown(desc_before))
+                    
+                    # 公式
+                    formula_html = self.formula_processor.format_block_formula(formula_content)
+                    desc_parts.append(formula_html)
+                    
+                    # 公式后的文本
+                    if after_formula:
+                        desc_parts.append(self._convert_inline_markdown(after_formula))
+                    
+                    desc_html = ''.join(desc_parts)
+                    if desc_before.startswith(' '):
+                        desc_html = '&nbsp;' + desc_html
+                    
+                    return f'<span style="white-space: nowrap;">{title_html}</span>&nbsp;{desc_html}'
+                else:
+                    # 没有冒号，正常处理各部分
+                    if before_formula.strip():
+                        result_parts.append(self._convert_inline_markdown(before_formula))
+                    
+                    # 公式
+                    formula_html = self.formula_processor.format_block_formula(formula_content)
+                    result_parts.append(formula_html)
+                    
+                    # 公式后的文本
+                    if after_formula.strip():
+                        result_parts.append(self._convert_inline_markdown(after_formula))
+                    
+                    return ''.join(result_parts)
+        
+        # 没有公式，正常处理
+        return self._convert_list_item_text_part(text, zw_char)
+    
+    def _convert_list_item_text_part(self, text: str, zw_char: str) -> str:
+        """
+        转换列表项文本部分（不包含公式）
+        
+        Args:
+            text: 列表项文本（Markdown 格式）
+            zw_char: 零宽字符组合
+        
+        Returns:
+            HTML 字符串
+        """
         # 匹配模式1：**加粗文本**：描述
         bold_colon_pattern = r'(\*\*[^*]+\*\*[：:])(.*)'
         bold_match = re.match(bold_colon_pattern, text)
@@ -2227,9 +2574,10 @@ class WeChatHTMLConverter:
         while len(alignments) < num_cols:
             alignments.append('left')
         
-        # 表头样式
-        header_style = f"background-color:{self.style_config.h3_title_bg_color};font-weight:bold;"
-        cell_style_base = f"border:1px solid {self.style_config.h2_h3_card_border_color};padding:8px 12px;"
+        # 表头样式（只保留字体加粗，背景色移到行容器）
+        header_text_style = f"font-weight:bold;"
+        # 移除单元格边框，只保留内边距
+        cell_style_base = f"padding:8px 12px;"
         
         # 构建表格行
         for row_idx, (cells, is_header) in enumerate(table_rows):
@@ -2243,9 +2591,9 @@ class WeChatHTMLConverter:
                 alignment = alignments[col_idx] if col_idx < len(alignments) else 'left'
                 text_align = f"text-align:{alignment};"
                 
-                # 单元格样式
+                # 单元格样式（移除边框，标题栏只保留字体加粗，不设置背景色）
                 if is_header:
-                    cell_style = f"{cell_style_base}{header_style}{text_align}"
+                    cell_style = f"{cell_style_base}{header_text_style}{text_align}"
                 else:
                     cell_style = f"{cell_style_base}{text_align}"
                 
@@ -2254,18 +2602,29 @@ class WeChatHTMLConverter:
                 
                 # 使用 span 标签模拟表格单元格（微信不支持 table 标签）
                 # 注意：使用 flex 或 table-cell 可能不被微信支持，所以使用 inline-block
-                # 计算每个单元格的宽度（考虑边框）
+                # 计算每个单元格的宽度
+                # 移除 min-height，让每个单元格根据内容自适应高度
+                # 使用 vertical-align:middle 让单元格内容垂直居中
                 cell_width = f"{100/num_cols:.2f}%"
                 row_html_parts.append(
-                    f'<span style="{cell_style}display:inline-block;width:{cell_width};vertical-align:top;box-sizing:border-box;">{cell_content}</span>'
+                    f'<span style="{cell_style}display:inline-block;width:{cell_width};vertical-align:middle;box-sizing:border-box;">{cell_content}</span>'
                 )
             
             # 每行用 p 标签包裹，并添加换行
-            row_html = f'<p style="margin:0;padding:0;line-height:1.6;">{"".join(row_html_parts)}</p>'
+            # 添加行之间的横线（border-bottom），最后一行不添加
+            # 如果是标题行，添加背景色到行容器（上下线之间的范围）
+            border_bottom = ""
+            row_bg = ""
+            if row_idx < len(table_rows) - 1:
+                border_bottom = f"border-bottom:1px solid {self.style_config.h2_h3_card_border_color};"
+            if is_header:
+                row_bg = f"background-color:{self.style_config.h3_title_bg_color};"
+            
+            row_html = f'<p style="margin:0;padding:0;line-height:1.6;width:100%;overflow:hidden;{border_bottom}{row_bg}">{"".join(row_html_parts)}</p>'
             html_parts.append(row_html)
         
-        # 用 div 包裹整个表格，添加边框和间距
-        table_html = f'<div style="border:1px solid {self.style_config.h2_h3_card_border_color};border-radius:4px;margin:15px 0;overflow:hidden;">{"".join(html_parts)}</div>'
+        # 用 div 包裹整个表格，只保留顶部和底部边框，移除左右边框
+        table_html = f'<div style="border-top:1px solid {self.style_config.h2_h3_card_border_color};border-bottom:1px solid {self.style_config.h2_h3_card_border_color};margin:15px 0;overflow:hidden;">{"".join(html_parts)}</div>'
         return table_html + "<br>"
     
     def _convert_inline_markdown(self, text: str) -> str:
@@ -2353,13 +2712,33 @@ class WeChatHTMLConverter:
         
         text = re.sub(r'\{color:([^}]+)\}([^{]+)\{/color\}', replace_color_tag, text)
         
-        # 第三步：转义 HTML 特殊字符
+        # 第三步：处理 HTML 标签（如 <br>, <br/>）使用占位符，避免被转义
+        html_tag_placeholders = {}
+        html_tag_counter = 0
+        
+        def replace_html_tag(match):
+            nonlocal html_tag_counter
+            tag = match.group(0)  # 完整的标签，如 <br> 或 <br/>
+            placeholder = f"__HTMLTAG{html_tag_counter}__"
+            html_tag_placeholders[placeholder] = tag
+            html_tag_counter += 1
+            return placeholder
+        
+        # 匹配常见的 HTML 标签（如 <br>, <br/>, <br />, <p>, </p> 等）
+        # 但只匹配简单的自闭合标签和换行标签，避免匹配复杂的标签
+        text = re.sub(r'<(br\s*/?|p\s*/?|/p\s*|div\s*/?|/div\s*|span\s*/?|/span\s*)>', replace_html_tag, text, flags=re.IGNORECASE)
+        
+        # 第四步：转义 HTML 特殊字符
         # 先转义 &，但要避免转义已生成的 HTML 实体
         text = text.replace("&", "&amp;")
         # 转义 < 和 >
         text = text.replace("<", "&lt;").replace(">", "&gt;")
         
-        # 第四步：处理其他 Markdown 语法
+        # 第五步：恢复 HTML 标签占位符
+        for placeholder, tag in html_tag_placeholders.items():
+            text = text.replace(placeholder, tag)
+        
+        # 第六步：处理其他 Markdown 语法
         # 处理粗体 **text**（双星号，不会与占位符冲突，且未被颜色处理匹配）
         text = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', text)
         
