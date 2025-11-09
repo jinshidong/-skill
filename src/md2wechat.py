@@ -2337,7 +2337,7 @@ class WeChatHTMLConverter:
                 desc_before = bold_match.group(2).strip()  # 公式前的描述部分
                 
                 # 处理加粗部分（包含冒号）
-                converted_bold = self._convert_inline_markdown(bold_part, is_reference_section)
+                converted_bold = self._convert_inline_markdown(bold_part, is_reference_section, is_in_list_item=True)
                 bold_html = converted_bold.replace('</strong>', f'{zw_char}</strong>')
                 if '：' in bold_html or ':' in bold_html:
                     bold_html = re.sub(r'(</strong>)([：:])', lambda m: f'{m.group(1)}{zw_char}{zw_char}{zw_char}{m.group(2)}{zw_char}', bold_html)
@@ -2346,7 +2346,7 @@ class WeChatHTMLConverter:
                 # 组合：加粗部分 + 公式前的描述 + 公式 + 公式后的描述
                 desc_parts = []
                 if desc_before:
-                    desc_parts.append(self._convert_inline_markdown(desc_before, is_reference_section))
+                    desc_parts.append(self._convert_inline_markdown(desc_before, is_reference_section, is_in_list_item=True))
                 
                 # 公式（换行显示，块级公式）
                 formula_html = self.formula_processor.format_block_formula(formula_content)
@@ -2354,7 +2354,7 @@ class WeChatHTMLConverter:
                 
                 # 公式后的文本作为描述部分继续
                 if after_formula:
-                    desc_parts.append(self._convert_inline_markdown(after_formula, is_reference_section))
+                    desc_parts.append(self._convert_inline_markdown(after_formula, is_reference_section, is_in_list_item=True))
                 
                 # 组合所有部分
                 desc_html = ''.join(desc_parts)
@@ -2376,7 +2376,7 @@ class WeChatHTMLConverter:
                     desc_before = before_formula[colon_pos + 1:].strip()
                     
                     # 处理标题部分
-                    converted_title = self._convert_inline_markdown(title_part, is_reference_section)
+                    converted_title = self._convert_inline_markdown(title_part, is_reference_section, is_in_list_item=True)
                     title_html = re.sub(r'(</\w+>)([：:])', lambda m: f'{m.group(1)}{zw_char}{zw_char}{zw_char}{m.group(2)}{zw_char}', converted_title)
                     if '：' in title_html or ':' in title_html:
                         title_html = re.sub(r'(</\w+>)([：:])', lambda m: f'{m.group(1)}{zw_char}{zw_char}{zw_char}{m.group(2)}{zw_char}', title_html)
@@ -2385,7 +2385,7 @@ class WeChatHTMLConverter:
                     # 组合描述部分
                     desc_parts = []
                     if desc_before:
-                        desc_parts.append(self._convert_inline_markdown(desc_before, is_reference_section))
+                        desc_parts.append(self._convert_inline_markdown(desc_before, is_reference_section, is_in_list_item=True))
                     
                     # 公式
                     formula_html = self.formula_processor.format_block_formula(formula_content)
@@ -2393,7 +2393,7 @@ class WeChatHTMLConverter:
                     
                     # 公式后的文本
                     if after_formula:
-                        desc_parts.append(self._convert_inline_markdown(after_formula, is_reference_section))
+                        desc_parts.append(self._convert_inline_markdown(after_formula, is_reference_section, is_in_list_item=True))
                     
                     desc_html = ''.join(desc_parts)
                     if desc_before.startswith(' '):
@@ -2403,7 +2403,7 @@ class WeChatHTMLConverter:
                 else:
                     # 没有冒号，正常处理各部分
                     if before_formula.strip():
-                        result_parts.append(self._convert_inline_markdown(before_formula, is_reference_section))
+                        result_parts.append(self._convert_inline_markdown(before_formula, is_reference_section, is_in_list_item=True))
                     
                     # 公式
                     formula_html = self.formula_processor.format_block_formula(formula_content)
@@ -2411,7 +2411,7 @@ class WeChatHTMLConverter:
                     
                     # 公式后的文本
                     if after_formula.strip():
-                        result_parts.append(self._convert_inline_markdown(after_formula, is_reference_section))
+                        result_parts.append(self._convert_inline_markdown(after_formula, is_reference_section, is_in_list_item=True))
                     
                     return ''.join(result_parts)
         
@@ -2439,7 +2439,7 @@ class WeChatHTMLConverter:
             desc_part = bold_match.group(2).strip()  # 描述文本
             
             # 转换加粗部分（包含冒号）
-            converted_bold = self._convert_inline_markdown(bold_part, is_reference_section)
+            converted_bold = self._convert_inline_markdown(bold_part, is_reference_section, is_in_list_item=True)
             
             # 在 </strong> 和冒号之间插入多个零宽字符，确保冒号不会单独换到下一行
             # 在冒号前插入多个零宽字符，形成更强的防换行连接
@@ -2453,7 +2453,7 @@ class WeChatHTMLConverter:
             
             # 转换描述部分
             if desc_part:
-                desc_html = self._convert_inline_markdown(desc_part, is_reference_section)
+                desc_html = self._convert_inline_markdown(desc_part, is_reference_section, is_in_list_item=True)
                 # 只将描述文本的第一个空格替换为 &nbsp;，防止在冒号后立即换行
                 # 但描述文本本身可以换行（不包裹在 nowrap 中）
                 if desc_part.startswith(' '):
@@ -2473,8 +2473,8 @@ class WeChatHTMLConverter:
         link_pattern = r'^\[([^\]]+)\]\(([^)]+)\)$'
         link_match = re.match(link_pattern, text.strip())
         if link_match:
-            # 整个文本是一个完整链接，直接转换
-            return self._convert_inline_markdown(text, is_reference_section)
+            # 整个文本是一个完整链接，直接转换（传递 is_in_list_item=True）
+            return self._convert_inline_markdown(text, is_reference_section, is_in_list_item=True)
         
         # 查找第一个冒号（中文或英文）的位置
         # 需要排除URL中的://和链接括号内的冒号
@@ -2516,7 +2516,7 @@ class WeChatHTMLConverter:
             desc_part = text[colon_pos + 1:].strip()  # 描述文本
             
             # 转换标题部分（包含冒号）
-            converted_title = self._convert_inline_markdown(title_part, is_reference_section)
+            converted_title = self._convert_inline_markdown(title_part, is_reference_section, is_in_list_item=True)
             
             # 在冒号前后插入多个零宽字符，确保冒号不会单独换到下一行
             # 处理 </code>、</strong> 等标签后的冒号
@@ -2531,7 +2531,7 @@ class WeChatHTMLConverter:
             
             # 转换描述部分
             if desc_part:
-                desc_html = self._convert_inline_markdown(desc_part, is_reference_section)
+                desc_html = self._convert_inline_markdown(desc_part, is_reference_section, is_in_list_item=True)
                 # 只将描述文本的第一个空格替换为 &nbsp;，防止在冒号后立即换行
                 # 但描述文本本身可以换行（不包裹在 nowrap 中）
                 if desc_part.startswith(' '):
@@ -2545,7 +2545,7 @@ class WeChatHTMLConverter:
                 return f'<span style="white-space: nowrap;">{title_html}</span>'
         
         # 不匹配任何模式，正常转换（无冒号的普通文本）
-        return self._convert_inline_markdown(text, is_reference_section)
+        return self._convert_inline_markdown(text, is_reference_section, is_in_list_item=True)
     
     def _convert_list(self, list_structure: List, is_ordered: bool, is_reference_section: bool = False) -> str:
         """
@@ -2565,23 +2565,35 @@ class WeChatHTMLConverter:
         html_items = []
         
         for item in list_structure:
+            # 如果是参考文献部分，为列表项添加不换行样式（横向滚动在容器上）
+            if is_reference_section:
+                li_style = 'white-space:nowrap;'
+            else:
+                li_style = ''
+            
             if len(item) == 3:
                 # 有嵌套列表
                 text, indent, nested_list = item
                 # 使用特殊处理方法来处理加粗文本+冒号的格式
                 converted_text = self._convert_list_item_with_bold_colon(text, is_reference_section)
                 nested_html = self._convert_list(nested_list, is_ordered, is_reference_section)
-                item_html = f"<li>{converted_text}{nested_html}</li>"
+                item_html = f"<li style=\"{li_style}\">{converted_text}{nested_html}</li>"
                 html_items.append(item_html)
             else:
                 # 普通列表项
                 text, indent = item
                 # 使用特殊处理方法来处理加粗文本+冒号的格式
                 converted_text = self._convert_list_item_with_bold_colon(text, is_reference_section)
-                item_html = f"<li>{converted_text}</li>"
+                item_html = f"<li style=\"{li_style}\">{converted_text}</li>"
                 html_items.append(item_html)
         
-        list_html = f"<{tag} style=\"margin:10px 0;padding-left:20px;line-height:1.8;\">" + "".join(html_items) + f"</{tag}>"
+        # 如果是参考文献部分，为整个列表容器添加横向滚动样式
+        if is_reference_section:
+            list_style = "margin:10px 0;padding-left:30px;line-height:1.8;overflow-x:auto;"
+        else:
+            list_style = "margin:10px 0;padding-left:20px;line-height:1.8;"
+        
+        list_html = f"<{tag} style=\"{list_style}\">" + "".join(html_items) + f"</{tag}>"
         return list_html
     
     def _convert_table(self, table_rows: List[Tuple], alignments: List[str], is_reference_section: bool = False) -> str:
@@ -2662,13 +2674,14 @@ class WeChatHTMLConverter:
         table_html = f'<div style="border-top:1px solid {self.style_config.h2_h3_card_border_color};border-bottom:1px solid {self.style_config.h2_h3_card_border_color};margin:15px 0;overflow:hidden;">{"".join(html_parts)}</div>'
         return table_html + "<br>"
     
-    def _convert_inline_markdown(self, text: str, is_reference_section: bool = False) -> str:
+    def _convert_inline_markdown(self, text: str, is_reference_section: bool = False, is_in_list_item: bool = False) -> str:
         """
         转换内联 Markdown（粗体、代码、链接、行内公式等）
         
         Args:
             text: 要转换的文本
             is_reference_section: 是否在参考文献部分（用于特殊处理链接格式）
+            is_in_list_item: 是否在列表项中（用于区分列表项和非列表项的链接处理）
         """
         # 使用占位符方法：先处理所有需要生成 HTML 的内容，然后统一转义
         
@@ -2816,9 +2829,7 @@ class WeChatHTMLConverter:
             is_wechat_link = False
             if is_reference_section:
                 is_wechat_link = (
-                    'mp.weixin.qq.com/s' in url_cleaned or 
-                    url_cleaned.startswith('https://mp.weixin.qq.com/s') or 
-                    url_cleaned.startswith('http://mp.weixin.qq.com/s')
+                    'mp-except.weixin.qq.com/s' in url_cleaned
                 )
             
             # URL 转义：确保 URL 中的特殊字符被正确编码
@@ -2854,36 +2865,47 @@ class WeChatHTMLConverter:
             # 添加微信兼容的样式：蓝色链接，下划线
             link_style = 'color:#576b95;text-decoration:underline;'
             
-            # 如果是参考文献部分，特殊处理链接格式
-            if is_reference_section:
+            # 如果是参考文献部分且在列表项中，只显示文本和URL，不使用链接
+            if is_reference_section and is_in_list_item:
                 if is_wechat_link:
-                    # 微信内部链接：按照正文方式处理（只显示链接文本，不显示URL）
-                    if title:
-                        escaped_title = title.replace('"', '&quot;').replace("'", '&#39;')
-                        return f'<a href="{escaped_url}" title="{escaped_title}" style="{link_style}">{link_text}</a>'
-                    else:
-                        return f'<a href="{escaped_url}" style="{link_style}">{link_text}</a>'
+                    # 微信内部链接：只显示链接文本，不显示URL
+                    # 在链接文本中的冒号前后添加零宽字符，防止换行
+                    zw_char = '\u200B\u200C\u200D'  # 零宽字符组合
+                    link_text_processed = link_text
+                    # 在冒号前后插入零宽字符，防止换行
+                    link_text_processed = re.sub(r'([：:])', lambda m: f'{zw_char}{m.group(1)}{zw_char}', link_text_processed)
+                    return f'{link_text_processed}'
                 else:
-                    # 外部链接：显示"名称（URL）"格式
+                    # 外部链接：显示"名称（URL）"格式，不使用链接
                     # 转义URL用于显示（转义HTML特殊字符，使用清理后的URL）
                     display_url = (url_cleaned.replace('&', '&amp;')
                                   .replace('<', '&lt;')
                                   .replace('>', '&gt;')
                                   .replace('"', '&quot;')
                                   .replace("'", '&#39;'))
+                    return f'{link_text}（{display_url}）'
+            else:
+                # 非列表项或非参考文献部分，使用 <a> 标签
+                if is_reference_section and is_wechat_link:
+                    # 参考文献部分的微信内部链接：在链接文本中的冒号前后添加零宽字符，防止换行
+                    zw_char = '\u200B\u200C\u200D'  # 零宽字符组合
+                    link_text_processed = link_text
+                    # 在冒号前后插入零宽字符，防止换行
+                    link_text_processed = re.sub(r'([：:])', lambda m: f'{zw_char}{m.group(1)}{zw_char}', link_text_processed)
+                    # 使用 nowrap 样式防止链接文本换行
+                    link_style_nowrap = link_style + 'white-space:nowrap;'
                     if title:
                         escaped_title = title.replace('"', '&quot;').replace("'", '&#39;')
-                        return f'<a href="{escaped_url}" title="{escaped_title}" style="{link_style}">{link_text}</a>（{display_url}）'
+                        return f'<a href="{escaped_url}" title="{escaped_title}" style="{link_style_nowrap}">{link_text_processed}</a>'
                     else:
-                        return f'<a href="{escaped_url}" style="{link_style}">{link_text}</a>（{display_url}）'
-            else:
-                # 非参考文献部分，正常处理（只显示链接文本，不显示URL）
-                if title:
-                    # 转义标题中的引号
-                    escaped_title = title.replace('"', '&quot;').replace("'", '&#39;')
-                    return f'<a href="{escaped_url}" title="{escaped_title}" style="{link_style}">{link_text}</a>'
+                        return f'<a href="{escaped_url}" style="{link_style_nowrap}">{link_text_processed}</a>'
                 else:
-                    return f'<a href="{escaped_url}" style="{link_style}">{link_text}</a>'
+                    # 其他情况：正常使用 <a> 标签
+                    if title:
+                        escaped_title = title.replace('"', '&quot;').replace("'", '&#39;')
+                        return f'<a href="{escaped_url}" title="{escaped_title}" style="{link_style}">{link_text}</a>'
+                    else:
+                        return f'<a href="{escaped_url}" style="{link_style}">{link_text}</a>'
         
         # 匹配 [text](url "title") 或 [text](url)
         # 先匹配带标题的（更具体，使用非贪婪匹配）
