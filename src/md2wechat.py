@@ -2468,10 +2468,45 @@ class WeChatHTMLConverter:
         
         # 匹配模式2：普通文本：描述（无加粗但有冒号）
         # 匹配格式：文本（可能包含代码、链接等）：描述
+        # 首先检查整个文本是否是一个完整的链接 [text](url)
+        # 如果是完整链接，直接转换，不进行冒号分割
+        link_pattern = r'^\[([^\]]+)\]\(([^)]+)\)$'
+        link_match = re.match(link_pattern, text.strip())
+        if link_match:
+            # 整个文本是一个完整链接，直接转换
+            return self._convert_inline_markdown(text, is_reference_section)
+        
         # 查找第一个冒号（中文或英文）的位置
+        # 需要排除URL中的://和链接括号内的冒号
         colon_pos = -1
+        in_link = False  # 是否在链接的括号内
         for i, char in enumerate(text):
+            # 检查是否进入或离开链接的括号
+            if i > 0 and text[i-1] == ']' and char == '(':
+                in_link = True
+            elif in_link and char == ')':
+                in_link = False
+                continue
+            
+            # 如果在链接内，跳过冒号（URL中的://）
+            if in_link:
+                continue
+            
+            # 检查是否是URL协议中的://
             if char in '：:':
+                # 检查是否是://的一部分
+                if i > 0 and text[i-1] == '/' and i < len(text) - 1 and text[i+1] == '/':
+                    continue
+                # 检查冒号是否在链接的方括号内 [text:...](url)
+                # 如果冒号前面有 [ 且后面有 ]，说明在链接文本内，不应该分割
+                if '[' in text[:i] and ']' in text[i:]:
+                    # 检查是否在链接的方括号内
+                    last_open_bracket = text.rfind('[', 0, i)
+                    if last_open_bracket >= 0:
+                        next_close_bracket = text.find(']', i)
+                        if next_close_bracket > i:
+                            # 冒号在链接的方括号内，跳过
+                            continue
                 colon_pos = i
                 break
         
@@ -2761,27 +2796,43 @@ class WeChatHTMLConverter:
             url = match.group(2).strip()
             title = match.group(3) if len(match.groups()) > 2 and match.group(3) else None
             
+            # 清理URL中的零宽字符（可能在之前处理中被插入）
+            # 零宽字符：零宽不连字(U+200C)、零宽空格(U+200B)、零宽连字(U+200D)
+            import re
+            url_cleaned = re.sub(r'[\u200B-\u200D\uFEFF]', '', url)
+            # 清理协议和URL之间的空格（如 "https: //" -> "https://"）
+            url_cleaned = re.sub(r'(https?):\s*//', r'\1://', url_cleaned)
+            # 清理开头的多余空格和斜杠
+            url_cleaned = url_cleaned.lstrip().lstrip('/')
+            # 如果清理后没有协议，尝试添加 https://
+            if not url_cleaned.startswith(('http://', 'https://')):
+                if url_cleaned.startswith('mp.weixin.qq.com'):
+                    url_cleaned = 'https://' + url_cleaned
+                elif '://' not in url_cleaned:
+                    url_cleaned = 'https://' + url_cleaned.lstrip('/')
+            
             # 如果是参考文献部分，先检查是否是微信内部链接（在URL编码之前检查）
             # 检查URL中是否包含 mp.weixin.qq.com/s（支持 http/https，支持查询参数）
             is_wechat_link = False
             if is_reference_section:
                 is_wechat_link = (
-                    'mp.weixin.qq.com/s' in url or 
-                    url.startswith('https://mp.weixin.qq.com/s') or 
-                    url.startswith('http://mp.weixin.qq.com/s')
+                    'mp.weixin.qq.com/s' in url_cleaned or 
+                    url_cleaned.startswith('https://mp.weixin.qq.com/s') or 
+                    url_cleaned.startswith('http://mp.weixin.qq.com/s')
                 )
             
             # URL 转义：确保 URL 中的特殊字符被正确编码
             # 但保持已有的编码不变
             import urllib.parse
+            # 使用清理后的URL进行编码
             # 检查 URL 是否已经是编码过的（简单判断）
-            if '%' in url and any(c in url for c in ['%20', '%2F', '%3A', '%3F']):
+            if '%' in url_cleaned and any(c in url_cleaned for c in ['%20', '%2F', '%3A', '%3F']):
                 # 可能已经编码过，直接使用
-                escaped_url = url
+                escaped_url = url_cleaned
             else:
                 # 对 URL 进行编码，但保留协议部分
                 try:
-                    parsed = urllib.parse.urlparse(url)
+                    parsed = urllib.parse.urlparse(url_cleaned)
                     if parsed.scheme:
                         # 有协议，只编码路径、查询字符串等部分
                         path = urllib.parse.quote(parsed.path, safe='/')
@@ -2794,17 +2845,19 @@ class WeChatHTMLConverter:
                             escaped_url += f"#{fragment}"
                     else:
                         # 无协议，直接编码（但保留常见字符）
-                        escaped_url = urllib.parse.quote(url, safe='/:?=&')
+                        escaped_url = urllib.parse.quote(url_cleaned, safe='/:?=&')
                 except:
                     # 如果解析失败，直接转义特殊字符
-                    escaped_url = url.replace('&', '&amp;').replace('"', '&quot;').replace("'", '&#39;')
+                    escaped_url = url_cleaned.replace('&', '&amp;').replace('"', '&quot;').replace("'", '&#39;')
+            
+            # 构建链接 HTML（link_text 已经在前面转义过 HTML 特殊字符）
+            # 添加微信兼容的样式：蓝色链接，下划线
+            link_style = 'color:#576b95;text-decoration:underline;'
             
             # 如果是参考文献部分，特殊处理链接格式
             if is_reference_section:
-                
                 if is_wechat_link:
-                    # 微信内部链接：只显示链接文本，不显示URL
-                    link_style = 'color:#576b95;text-decoration:underline;'
+                    # 微信内部链接：按照正文方式处理（只显示链接文本，不显示URL）
                     if title:
                         escaped_title = title.replace('"', '&quot;').replace("'", '&#39;')
                         return f'<a href="{escaped_url}" title="{escaped_title}" style="{link_style}">{link_text}</a>'
@@ -2812,9 +2865,8 @@ class WeChatHTMLConverter:
                         return f'<a href="{escaped_url}" style="{link_style}">{link_text}</a>'
                 else:
                     # 外部链接：显示"名称（URL）"格式
-                    link_style = 'color:#576b95;text-decoration:underline;'
-                    # 转义URL用于显示（转义HTML特殊字符）
-                    display_url = (url.replace('&', '&amp;')
+                    # 转义URL用于显示（转义HTML特殊字符，使用清理后的URL）
+                    display_url = (url_cleaned.replace('&', '&amp;')
                                   .replace('<', '&lt;')
                                   .replace('>', '&gt;')
                                   .replace('"', '&quot;')
@@ -2825,10 +2877,7 @@ class WeChatHTMLConverter:
                     else:
                         return f'<a href="{escaped_url}" style="{link_style}">{link_text}</a>（{display_url}）'
             else:
-                # 非参考文献部分，正常处理
-                # 构建链接 HTML（link_text 已经在前面转义过 HTML 特殊字符）
-                # 添加微信兼容的样式：蓝色链接，下划线
-                link_style = 'color:#576b95;text-decoration:underline;'
+                # 非参考文献部分，正常处理（只显示链接文本，不显示URL）
                 if title:
                     # 转义标题中的引号
                     escaped_title = title.replace('"', '&quot;').replace("'", '&#39;')
