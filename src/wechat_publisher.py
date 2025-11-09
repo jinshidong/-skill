@@ -2401,16 +2401,27 @@ class WeChatPublisher:
             file_uploaded = False
             try:
                 # 直接定位 #js_cover_area 内的 input[type="file"]
+                # 优先使用精确选择器，如果找不到再尝试全局查找
                 file_input_selectors = [
-                    '#js_cover_area input[type="file"]',
-                    'input[type="file"]'  # 如果上面找不到，尝试全局查找
+                    '#js_cover_area input[type="file"]',  # 精确选择器（推荐）
+                    'input[type="file"]'  # 备用：全局查找（可能找到其他文件输入框）
                 ]
                 
+                # 首先在 frame_ctx 中查找（可能是主页面或 iframe）
                 for selector in file_input_selectors:
                     try:
-                        # 在主页面查找
                         file_input = frame_ctx.locator(selector).first
                         if file_input.count() > 0:
+                            # 验证这个 input 确实在 #js_cover_area 内（对于全局选择器）
+                            if selector == 'input[type="file"]':
+                                # 检查是否在 #js_cover_area 内
+                                is_in_cover_area = file_input.evaluate('''(el) => {
+                                    return el.closest('#js_cover_area') !== null;
+                                }''')
+                                if not is_in_cover_area:
+                                    logger.debug(f"找到的 input[type=\"file\"] 不在 #js_cover_area 内，跳过")
+                                    continue
+                            
                             logger.info(f"✅ 找到文件输入框: {selector}，使用 setInputFiles() 上传...")
                             file_input.set_input_files(image_path)
                             file_uploaded = True
@@ -2421,12 +2432,21 @@ class WeChatPublisher:
                         logger.debug(f"尝试选择器 {selector} 失败: {e}")
                         continue
                 
-                # 如果主页面找不到，尝试在 iframe 中查找
+                # 如果 frame_ctx 中找不到，且 frame_ctx 不是主页面，尝试在主页面查找
                 if not file_uploaded and frame_ctx != self.page:
+                    logger.info("在 frame_ctx 中未找到，尝试在主页面查找...")
                     for selector in file_input_selectors:
                         try:
                             file_input = self.page.locator(selector).first
                             if file_input.count() > 0:
+                                # 验证是否在 #js_cover_area 内
+                                if selector == 'input[type="file"]':
+                                    is_in_cover_area = file_input.evaluate('''(el) => {
+                                        return el.closest('#js_cover_area') !== null;
+                                    }''')
+                                    if not is_in_cover_area:
+                                        continue
+                                
                                 logger.info(f"✅ 在主页面找到文件输入框: {selector}，使用 setInputFiles() 上传...")
                                 file_input.set_input_files(image_path)
                                 file_uploaded = True
