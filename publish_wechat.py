@@ -94,6 +94,11 @@ def main():
         action="store_true",
         help="交互模式：仅打开浏览器，不插入内容"
     )
+    parser.add_argument(
+        "--cover-image-path",
+        type=str,
+        help="封面图片路径（直接拖拽本地图片文件）"
+    )
     
     args = parser.parse_args()
     
@@ -210,7 +215,8 @@ def main():
         auto_publish=args.auto_publish,
         scheduled_time=scheduled_time,
         scheduled_date=scheduled_date,
-        enable_group_notify=args.enable_group_notify
+        enable_group_notify=args.enable_group_notify,
+        cover_image_path=args.cover_image_path
     )
     
     if result.get("ok"):
