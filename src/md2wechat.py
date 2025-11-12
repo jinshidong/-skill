@@ -1859,6 +1859,21 @@ class WeChatHTMLConverter:
                     i += 1
                     continue
             
+            # 引用块（以 > 开头的行）
+            if line.lstrip().startswith('>'):
+                flush_para_buffer(parabuf)
+                # 收集连续的引用行
+                quote_lines = []
+                while i < len(lines) and lines[i].lstrip().startswith('>'):
+                    # 移除前导的 > 和空格
+                    quote_line = lines[i].lstrip()[1:].lstrip()
+                    quote_lines.append(quote_line)
+                    i += 1
+                # 合并多行引用为一个段落
+                quote_text = ' '.join(quote_lines)
+                (cur['items'] if cur else preface).append(('blockquote', quote_text))
+                continue
+            
             # 水平分割线（---, ***, ___，至少3个，前后可以有空格）
             stripped = line.strip()
             if stripped and len(stripped) >= 3:
@@ -2108,6 +2123,10 @@ class WeChatHTMLConverter:
                 elif item_type == "horizontal_rule":
                     card_content.append(self._convert_horizontal_rule())
                     has_real_content = True
+                elif item_type == "blockquote":
+                    quote_text = item_data[0] if len(item_data) > 0 else ""
+                    card_content.append(self._convert_blockquote(quote_text, is_reference_section))
+                    has_real_content = True
                 # 注意：忽略 "empty" 类型，不标记为实际内容
             
             # 只有当有实际内容时才将内容包裹在卡片中
@@ -2154,6 +2173,9 @@ class WeChatHTMLConverter:
                         reference_content.append(self._convert_table(table_rows, alignments, is_reference_section))
                     elif item_type == "horizontal_rule":
                         reference_content.append(self._convert_horizontal_rule())
+                    elif item_type == "blockquote":
+                        quote_text = item_data[0] if len(item_data) > 0 else ""
+                        reference_content.append(self._convert_blockquote(quote_text, is_reference_section))
                     elif item_type == "empty":
                         reference_content.append("<br>")
                 # 为参考文献内容添加小字体和浅色样式
@@ -2188,6 +2210,9 @@ class WeChatHTMLConverter:
                         html_parts.append(self._convert_table(table_rows, alignments))
                     elif item_type == "horizontal_rule":
                         html_parts.append(self._convert_horizontal_rule())
+                    elif item_type == "blockquote":
+                        quote_text = item_data[0] if len(item_data) > 0 else ""
+                        html_parts.append(self._convert_blockquote(quote_text))
                     elif item_type == "empty":
                         html_parts.append("<br>")
         
@@ -2247,6 +2272,41 @@ class WeChatHTMLConverter:
         # 使用 <hr> 标签，添加样式使其在微信中正确显示
         # 使用主题颜色作为分割线颜色
         return f'<hr style="border:none;border-top:1px solid {self.style_config.h2_h3_card_border_color};margin:20px 0;width:100%;"><br>'
+    
+    def _convert_blockquote(self, text: str, is_reference_section: bool = False) -> str:
+        """
+        转换引用块（blockquote）
+        
+        Args:
+            text: 引用文本
+            is_reference_section: 是否在参考文献部分
+        
+        Returns:
+            HTML 字符串（带增强显示效果的引用块）
+        """
+        if not text.strip():
+            return ""
+        
+        # 转换内联 Markdown 格式
+        converted_text = self._convert_inline_markdown(text, is_reference_section)
+        
+        # 引用块样式：
+        # - 左侧添加深色竖条（使用主题颜色）
+        # - 浅灰色背景
+        # - 斜体文字
+        # - 适当的内边距和圆角
+        quote_style = (
+            f'background-color:rgba(240, 240, 240, 0.6);'
+            f'border-left:4px solid {self.style_config.h3_title_border_color};'
+            f'padding:12px 16px;'
+            f'margin:15px 0;'
+            f'border-radius:4px;'
+            f'font-style:italic;'
+            f'color:{self.style_config.card_text_color};'
+            f'line-height:1.8;'
+        )
+        
+        return f'<div style="{quote_style}">{converted_text}</div><br>'
     
     def _build_list_structure(self, items: List[Tuple[str, int]], base_indent: int, is_ordered: bool) -> List:
         """
