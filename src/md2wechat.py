@@ -2537,10 +2537,22 @@ class WeChatHTMLConverter:
             return self._convert_inline_markdown(text, is_reference_section, is_in_list_item=True)
         
         # 查找第一个冒号（中文或英文）的位置
-        # 需要排除URL中的://和链接括号内的冒号
+        # 需要排除：
+        # 1. URL中的://
+        # 2. 链接括号内的冒号
+        # 3. 颜色标记中的冒号 {color:
         colon_pos = -1
         in_link = False  # 是否在链接的括号内
+        in_color_tag = False  # 是否在颜色标记内
         for i, char in enumerate(text):
+            # 检查是否进入颜色标记 {color: 或 {color:
+            if i > 0 and text[i-6:i+1] == '{color:':
+                in_color_tag = True
+            # 检查是否离开颜色标记（遇到}）
+            elif in_color_tag and char == '}':
+                in_color_tag = False
+                continue
+            
             # 检查是否进入或离开链接的括号
             if i > 0 and text[i-1] == ']' and char == '(':
                 in_link = True
@@ -2548,14 +2560,20 @@ class WeChatHTMLConverter:
                 in_link = False
                 continue
             
-            # 如果在链接内，跳过冒号（URL中的://）
-            if in_link:
+            # 如果在链接内或颜色标记内，跳过冒号
+            if in_link or in_color_tag:
                 continue
             
             # 检查是否是URL协议中的://
             if char in '：:':
                 # 检查是否是://的一部分
                 if i > 0 and text[i-1] == '/' and i < len(text) - 1 and text[i+1] == '/':
+                    continue
+                # 检查是否在颜色标记中 {color: 或 {color:
+                # 向前查找最多7个字符，看是否是 {color:
+                start = max(0, i - 6)
+                if text[start:i+1].endswith('{color:'):
+                    in_color_tag = True
                     continue
                 # 检查冒号是否在链接的方括号内 [text:...](url)
                 # 如果冒号前面有 [ 且后面有 ]，说明在链接文本内，不应该分割
@@ -2768,9 +2786,9 @@ class WeChatHTMLConverter:
         text = re.sub(r'(?<!\$)\$([^$]+)\$(?!\$)', replace_inline_formula, text)
         
         # 第二步：处理颜色语法（使用占位符方法，避免被转义）
-        # 支持以下语法：
-        # 1. **文字**{color:#ff0000} - 加粗+颜色
-        # 2. [文字]{color:#ff0000} - 仅颜色
+        # 支持以下语法（推荐使用前两种，边界明确）：
+        # 1. **文字**{color:#ff0000} - 加粗+颜色（推荐）
+        # 2. [文字]{color:#ff0000} - 仅颜色（推荐）
         # 3. {color:#ff0000}文字{/color} - 标签风格的颜色
         
         color_placeholders = {}
@@ -2783,7 +2801,15 @@ class WeChatHTMLConverter:
             color_counter += 1
             return placeholder
         
-        # 处理加粗+颜色组合：**text**{color:#ff0000}
+        # 首先，清理文本中的零宽字符（这些字符可能干扰正则匹配）
+        # 零宽字符包括：
+        # - 零宽空格(U+200B)、零宽不连字(U+200C)、零宽连字(U+200D)
+        # - 字节序标记(U+FEFF)
+        # - 左至右标记(U+200E)、右至左标记(U+200F)
+        # - 其他不可见字符
+        text = re.sub(r'[\u200B-\u200F\uFEFF\u2060-\u206F]', '', text)
+        
+        # 处理加粗+颜色组合：**text**{color:#ff0000} 或 **text**{color: #ff0000}
         def replace_bold_color(match):
             content = match.group(1)
             color = match.group(2)
@@ -2796,9 +2822,10 @@ class WeChatHTMLConverter:
                 # 如果颜色无效，只保留加粗，不创建占位符
                 return f'**{content}**'
         
-        text = re.sub(r'\*\*([^*]+)\*\*\{color:([^}]+)\}', replace_bold_color, text)
+        # 允许 color: 后面有可选的空格
+        text = re.sub(r'\*\*([^*]+)\*\*\{color:\s*([^}]+)\}', replace_bold_color, text)
         
-        # 处理仅颜色：[text]{color:#ff0000}
+        # 处理仅颜色：[text]{color:#ff0000} 或 [text]{color: #ff0000}
         def replace_color_only(match):
             content = match.group(1)
             color = match.group(2)
@@ -2810,9 +2837,10 @@ class WeChatHTMLConverter:
                 # 如果颜色无效，返回原文本
                 return match.group(0)
         
-        text = re.sub(r'\[([^\]]+)\]\{color:([^}]+)\}', replace_color_only, text)
+        # 允许 color: 后面有可选的空格
+        text = re.sub(r'\[([^\]]+)\]\{color:\s*([^}]+)\}', replace_color_only, text)
         
-        # 处理标签风格的颜色：{color:#ff0000}text{/color}
+        # 处理标签风格的颜色：{color:#ff0000}text{/color} 或 {color: #ff0000}text{/color}
         def replace_color_tag(match):
             content = match.group(2)  # 注意：第二个是内容
             color = match.group(1)    # 第一个是颜色
@@ -2824,7 +2852,8 @@ class WeChatHTMLConverter:
                 # 如果颜色无效，返回原文本
                 return match.group(0)
         
-        text = re.sub(r'\{color:([^}]+)\}([^{]+)\{/color\}', replace_color_tag, text)
+        # 允许 color: 后面有可选的空格
+        text = re.sub(r'\{color:\s*([^}]+)\}([^{]+)\{/color\}', replace_color_tag, text)
         
         # 第三步：处理 HTML 标签（如 <br>, <br/>）使用占位符，避免被转义
         html_tag_placeholders = {}
