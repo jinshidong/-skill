@@ -2918,7 +2918,7 @@ class WeChatHTMLConverter:
             is_wechat_link = False
             if is_reference_section:
                 is_wechat_link = (
-                    'mp.weixin.qq.com/s' in url_cleaned
+                    'mp.weixin.qq.com' in url_cleaned
                 )
             
             # URL 转义：确保 URL 中的特殊字符被正确编码
