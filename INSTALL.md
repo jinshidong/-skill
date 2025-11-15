@@ -62,28 +62,107 @@ pip install matplotlib sympy
 
 #### 先安装 Node.js
 
+**方式一：从官网下载安装（推荐）**
+
 访问 [Node.js 官网](https://nodejs.org/) 下载并安装 Node.js（推荐 LTS 版本）。
 
-验证安装：
+**方式二：使用包管理器安装**
+
+- **Ubuntu/Debian**:
+  ```bash
+  curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+  sudo apt-get install -y nodejs
+  ```
+
+- **macOS（使用 Homebrew）**:
+  ```bash
+  brew install node
+  ```
+
+- **Windows（使用 Chocolatey）**:
+  ```powershell
+  choco install nodejs-lts
+  ```
+
+**方式三：使用 nvm（Node Version Manager）**
+
+如果需要管理多个 Node.js 版本，可以使用 nvm：
+
+```bash
+# 安装 nvm（Linux/macOS）
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+
+# 安装并使用 LTS 版本
+nvm install --lts
+nvm use --lts
+```
+
+**验证 Node.js 安装**：
 ```bash
 node --version
 npm --version
 ```
 
+如果两个命令都能正常显示版本号，说明安装成功。
+
 #### 安装 Mermaid CLI
+
+**步骤 1：全局安装 Mermaid CLI**
 
 ```bash
 npm install -g @mermaid-js/mermaid-cli
 ```
 
-验证安装：
+**注意权限问题**：
+
+- **Linux/macOS**：如果遇到权限错误，使用 `sudo`：
+  ```bash
+  sudo npm install -g @mermaid-js/mermaid-cli
+  ```
+
+- **Windows**：以管理员身份运行 PowerShell 或命令提示符
+
+**步骤 2：安装 Chrome Headless Shell（必需）**
+
+Mermaid CLI 使用 Puppeteer 渲染图表，需要 Chrome headless shell。**这是必需的步骤**，否则会报错找不到 Chrome。
+
+```bash
+npx puppeteer browsers install chrome-headless-shell
+```
+
+**注意**：
+- 这会下载约 100-200 MB 的 Chrome headless shell 到 `~/.cache/puppeteer` 目录
+- 不需要安装完整的 Google Chrome 浏览器，只需要 headless shell 即可
+- 如果下载速度慢，可以设置镜像源（可选）：
+  ```bash
+  export PUPPETEER_DOWNLOAD_HOST=https://npm.taobao.org/mirrors
+  npx puppeteer browsers install chrome-headless-shell
+  ```
+
+**验证安装**：
 ```bash
 mmdc --version
+```
+
+如果显示版本号（如 `10.x.x`），说明安装成功。
+
+**测试转换功能**（推荐）：
+```bash
+# 创建一个测试文件
+echo 'graph TD; A-->B;' > test.mmd
+
+# 转换为 PNG
+mmdc -i test.mmd -o test.png
+
+# 如果成功生成 test.png，说明安装正确
+rm test.mmd test.png  # 清理测试文件
 ```
 
 **注意**：
 - 如果不安装 Mermaid CLI，包含 Mermaid 图表的 Markdown 文件会显示错误提示，但其他内容仍可正常转换
 - Mermaid CLI 是全局安装的，一次安装后可在任何项目中使用
+- 如果使用 nvm，确保在正确的 Node.js 环境中安装
+- **必须安装 Chrome headless shell**，否则 Mermaid 图表无法转换
 
 ### 4. 验证安装
 
@@ -156,6 +235,22 @@ A: 确保已安装 `@mermaid-js/mermaid-cli` 并且在 PATH 中可用：
 which mmdc  # Linux/Mac
 where mmdc  # Windows
 ```
+
+### Q: 报错 "Could not find Chrome"？
+
+A: 这是因为 Mermaid CLI 需要 Chrome headless shell 来渲染图表。**不需要安装完整的 Google Chrome 浏览器**，只需要安装 Chrome headless shell：
+
+```bash
+npx puppeteer browsers install chrome-headless-shell
+```
+
+如果下载速度慢，可以使用国内镜像：
+```bash
+export PUPPETEER_DOWNLOAD_HOST=https://npm.taobao.org/mirrors
+npx puppeteer browsers install chrome-headless-shell
+```
+
+安装完成后，Chrome headless shell 会保存在 `~/.cache/puppeteer` 目录中。
 
 ## 开发环境设置（可选）
 
