@@ -131,7 +131,7 @@ npx puppeteer browsers install chrome-headless-shell
 ```
 
 **注意**：
-- 这会下载约 100-200 MB 的 Chrome headless shell 到 `~/.cache/puppeteer` 目录
+- 这会下载约 100-200 MB 的 Chrome headless shell 到 `~/.cache/puppeteer` 目录I
 - 不需要安装完整的 Google Chrome 浏览器，只需要 headless shell 即可
 - 如果下载速度慢，可以设置镜像源（可选）：
   ```bash
