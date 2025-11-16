@@ -965,7 +965,8 @@ class FormulaProcessor:
         plt.rcParams['mathtext.fontset'] = 'dejavusans'
         plt.rcParams['font.family'] = 'sans-serif'
         
-        # 始终使用透明背景，在 HTML 层面添加浅色背景容器来强调
+        # 使用浅黄色背景（#FFF8DC），避免图片太小或内容太少被腾讯公众号清洗掉
+        formula_bg_color = '#FFF8DC'  # 浅黄色背景
         
         # 根据公式复杂度动态调整图片尺寸
         # 检测公式是否包含矩阵、多个等号等复杂结构
@@ -976,18 +977,18 @@ class FormulaProcessor:
         # 创建图形（行内公式使用更小的尺寸）
         if is_inline:
             # 行内公式：使用非常小的图形，只包含公式内容
-            fig, ax = plt.subplots(figsize=(6, 0.4), facecolor='none')
+            fig, ax = plt.subplots(figsize=(6, 0.4), facecolor=formula_bg_color)
         else:
             # 块级公式：根据复杂度调整尺寸
             if has_matrix or has_multiple_equals or is_long_formula:
                 # 复杂公式（包含矩阵、多个等号或较长）：使用更大的图形
-                fig, ax = plt.subplots(figsize=(16, 2.0), facecolor='none')
+                fig, ax = plt.subplots(figsize=(16, 2.0), facecolor=formula_bg_color)
             else:
                 # 普通块级公式：使用标准尺寸
-                fig, ax = plt.subplots(figsize=(10, 1.5), facecolor='none')
+                fig, ax = plt.subplots(figsize=(10, 1.5), facecolor=formula_bg_color)
         
         ax.axis('off')
-        ax.set_facecolor('none')
+        ax.set_facecolor(formula_bg_color)
         
         # 渲染公式
         fontsize = 12 if is_inline else 18
@@ -1004,13 +1005,13 @@ class FormulaProcessor:
                 fontsize=fontsize, ha='center', va='center',
                 transform=ax.transAxes, usetex=False)
         
-        # 保存到内存缓冲区（使用透明背景）
+        # 保存到内存缓冲区（使用浅黄色背景）
         # 对于复杂公式，使用更高的 DPI 以确保清晰度
         dpi = 150 if is_inline else (250 if (has_matrix or has_multiple_equals or is_long_formula) else 200)
         buf = BytesIO()
         plt.savefig(buf, format='png', dpi=dpi, 
                    bbox_inches='tight', pad_inches=0.05 if is_inline else 0.1,
-                   facecolor='none', transparent=True)
+                   facecolor=formula_bg_color, transparent=False)
         plt.close(fig)
         
         # 转换为 base64
@@ -1042,7 +1043,8 @@ class FormulaProcessor:
         logging.getLogger('matplotlib').setLevel(logging.ERROR)
         logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
         
-        # 始终使用透明背景，在 HTML 层面添加浅色背景容器来强调
+        # 使用浅黄色背景（#FFF8DC），避免图片太小或内容太少被腾讯公众号清洗掉
+        formula_bg_color = '#FFF8DC'  # 浅黄色背景
         
         # 处理 LaTeX 代码：确保块级公式不包含 $ 符号
         # 先清理 LaTeX 中的 $ 符号（可能来自公式解析时的残留）
@@ -1057,18 +1059,18 @@ class FormulaProcessor:
         # 创建图形（行内公式使用更小的尺寸）
         if is_inline:
             # 行内公式：使用非常小的图形，只包含公式内容
-            fig, ax = plt.subplots(figsize=(6, 0.4), facecolor='none')
+            fig, ax = plt.subplots(figsize=(6, 0.4), facecolor=formula_bg_color)
         else:
             # 块级公式：根据复杂度调整尺寸
             if has_matrix or has_multiple_equals or is_long_formula:
                 # 复杂公式（包含矩阵、多个等号或较长）：使用更大的图形
-                fig, ax = plt.subplots(figsize=(16, 2.0), facecolor='none')
+                fig, ax = plt.subplots(figsize=(16, 2.0), facecolor=formula_bg_color)
             else:
                 # 普通块级公式：使用标准尺寸
-                fig, ax = plt.subplots(figsize=(10, 1.5), facecolor='none')
+                fig, ax = plt.subplots(figsize=(10, 1.5), facecolor=formula_bg_color)
         
         ax.axis('off')
-        ax.set_facecolor('none')
+        ax.set_facecolor(formula_bg_color)
         
         # 渲染公式（行内公式使用更小的字体）
         fontsize = 12 if is_inline else 18
@@ -1083,13 +1085,13 @@ class FormulaProcessor:
                 fontsize=fontsize, ha='center', va='center',
                 transform=ax.transAxes, usetex=False)  # 使用 matplotlib 的数学文本渲染
         
-        # 保存到内存缓冲区（使用透明背景）
+        # 保存到内存缓冲区（使用浅黄色背景）
         # 对于复杂公式，使用更高的 DPI 以确保清晰度
         dpi = 150 if is_inline else (250 if (has_matrix or has_multiple_equals or is_long_formula) else 200)
         buf = BytesIO()
         plt.savefig(buf, format='png', dpi=dpi, 
                    bbox_inches='tight', pad_inches=0.05 if is_inline else 0.1,
-                   facecolor='none', transparent=True)
+                   facecolor=formula_bg_color, transparent=False)
         plt.close(fig)
         
         # 转换为 base64
@@ -1146,8 +1148,8 @@ class FormulaProcessor:
         else:
             dpi = 150
         
-        # 始终使用透明背景，在 HTML 层面添加浅色背景容器来强调
-        # 构建 CodeCogs URL（使用透明背景）
+        # CodeCogs 渲染的图片会添加浅黄色背景（#FFF8DC），保持与 matplotlib/sympy 渲染的一致性
+        # 构建 CodeCogs URL（下载后会添加浅黄色背景）
         query_part = f"\\dpi{{{dpi}}} {latex}"
         encoded_query = quote(query_part, safe='')
         url = f"https://latex.codecogs.com/png.image?{encoded_query}"
@@ -1162,6 +1164,41 @@ class FormulaProcessor:
             # 验证是否为有效的图片数据
             if len(image_data) < 100:  # 太小的数据可能是错误页面
                 raise ValueError("Invalid image data from CodeCogs")
+            
+            # 为 CodeCogs 渲染的图片添加浅黄色背景，保持与 matplotlib/sympy 渲染的一致性
+            try:
+                from PIL import Image
+                from io import BytesIO
+                
+                # 打开图片
+                img = Image.open(BytesIO(image_data))
+                
+                # 如果图片有透明通道，需要添加背景色
+                if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+                    # 创建浅黄色背景（#FFF8DC）
+                    bg_color = (255, 248, 220)  # RGB 值对应 #FFF8DC
+                    
+                    # 转换为 RGBA 模式以便处理透明度
+                    if img.mode != 'RGBA':
+                        img = img.convert('RGBA')
+                    
+                    # 创建背景图片
+                    bg = Image.new('RGB', img.size, bg_color)
+                    
+                    # 将原图片合成到背景上
+                    bg.paste(img, mask=img.split()[3] if img.mode == 'RGBA' else None)
+                    img = bg
+                elif img.mode != 'RGB':
+                    # 如果不是 RGB 模式，转换为 RGB
+                    img = img.convert('RGB')
+                
+                # 保存到内存缓冲区
+                output = BytesIO()
+                img.save(output, format='PNG')
+                image_data = output.getvalue()
+            except Exception as e:
+                # 如果 PIL 处理失败，使用原始图片数据
+                print(f"Warning: Failed to add background color to CodeCogs image: {e}")
             
             # 转换为 base64
             base64_data = base64.b64encode(image_data).decode('utf-8')
@@ -1346,7 +1383,7 @@ class MermaidProcessor:
                 mmdc_args,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=60
             )
             
             if result.returncode != 0:
@@ -2152,6 +2189,7 @@ class WeChatHTMLConverter:
                         reference_content.append(self._convert_heading(heading_text, heading_level, is_reference_section))
                     elif item_type == "paragraph":
                         reference_content.append(self._convert_paragraph(item_data[0], is_reference_section))
+                        reference_content.append(self._convert_heading(heading_text, heading_level))
                     elif item_type == "code":
                         code_content, code_language = item_data[0], item_data[1] if len(item_data) > 1 else ""
                         reference_content.append(self.code_formatter.format_code_block(code_content, code_language))
@@ -2854,6 +2892,22 @@ class WeChatHTMLConverter:
         
         # 允许 color: 后面有可选的空格
         text = re.sub(r'\{color:\s*([^}]+)\}([^{]+)\{/color\}', replace_color_tag, text)
+        
+        # 第三步：处理 HTML 标签（如 <br>, <br/>）使用占位符，避免被转义
+        html_tag_placeholders = {}
+        html_tag_counter = 0
+        
+        def replace_html_tag(match):
+            nonlocal html_tag_counter
+            tag = match.group(0)  # 完整的标签，如 <br> 或 <br/>
+            placeholder = f"__HTMLTAG{html_tag_counter}__"
+            html_tag_placeholders[placeholder] = tag
+            html_tag_counter += 1
+            return placeholder
+        
+        # 匹配常见的 HTML 标签（如 <br>, <br/>, <br />, <p>, </p> 等）
+        # 但只匹配简单的自闭合标签和换行标签，避免匹配复杂的标签
+        text = re.sub(r'<(br\s*/?|p\s*/?|/p\s*|div\s*/?|/div\s*|span\s*/?|/span\s*)>', replace_html_tag, text, flags=re.IGNORECASE)
         
         # 第三步：处理 HTML 标签（如 <br>, <br/>）使用占位符，避免被转义
         html_tag_placeholders = {}
