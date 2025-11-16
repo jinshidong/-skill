@@ -1896,6 +1896,21 @@ class WeChatHTMLConverter:
                     i += 1
                     continue
             
+            # 引用块（以 > 开头的行）
+            if line.lstrip().startswith('>'):
+                flush_para_buffer(parabuf)
+                # 收集连续的引用行
+                quote_lines = []
+                while i < len(lines) and lines[i].lstrip().startswith('>'):
+                    # 移除前导的 > 和空格
+                    quote_line = lines[i].lstrip()[1:].lstrip()
+                    quote_lines.append(quote_line)
+                    i += 1
+                # 合并多行引用为一个段落
+                quote_text = ' '.join(quote_lines)
+                (cur['items'] if cur else preface).append(('blockquote', quote_text))
+                continue
+            
             # 水平分割线（---, ***, ___，至少3个，前后可以有空格）
             stripped = line.strip()
             if stripped and len(stripped) >= 3:
@@ -2104,13 +2119,13 @@ class WeChatHTMLConverter:
                     # 子标题（H4+）
                     heading_text = item_data[0] if len(item_data) > 0 else ""
                     heading_level = item_data[1] if len(item_data) > 1 else 4
-                    card_content.append(self._convert_heading(heading_text, heading_level))
+                    card_content.append(self._convert_heading(heading_text, heading_level, is_reference_section))
                     has_real_content = True
                 elif item_type == "paragraph":
                     # 段落：检查是否为空或只包含空白
                     para_text = item_data[0] if len(item_data) > 0 else ""
                     if para_text.strip():
-                        card_content.append(self._convert_paragraph(para_text))
+                        card_content.append(self._convert_paragraph(para_text, is_reference_section))
                         has_real_content = True
                 elif item_type == "code":
                     code_content, code_language = item_data[0], item_data[1] if len(item_data) > 1 else ""
@@ -2135,15 +2150,19 @@ class WeChatHTMLConverter:
                 elif item_type == "list":
                     list_structure, is_ordered = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else False
                     if list_structure:  # 只有当列表不为空时才添加
-                        card_content.append(self._convert_list(list_structure, is_ordered))
+                        card_content.append(self._convert_list(list_structure, is_ordered, is_reference_section))
                         has_real_content = True
                 elif item_type == "table":
                     table_rows, alignments = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else ['left']
                     if table_rows:  # 只有当表格不为空时才添加
-                        card_content.append(self._convert_table(table_rows, alignments))
+                        card_content.append(self._convert_table(table_rows, alignments, is_reference_section))
                         has_real_content = True
                 elif item_type == "horizontal_rule":
                     card_content.append(self._convert_horizontal_rule())
+                    has_real_content = True
+                elif item_type == "blockquote":
+                    quote_text = item_data[0] if len(item_data) > 0 else ""
+                    card_content.append(self._convert_blockquote(quote_text, is_reference_section))
                     has_real_content = True
                 # 注意：忽略 "empty" 类型，不标记为实际内容
             
@@ -2167,9 +2186,10 @@ class WeChatHTMLConverter:
                         # 子标题（H4+）
                         heading_text = item_data[0] if len(item_data) > 0 else ""
                         heading_level = item_data[1] if len(item_data) > 1 else 4
-                        reference_content.append(self._convert_heading(heading_text, heading_level))
+                        reference_content.append(self._convert_heading(heading_text, heading_level, is_reference_section))
                     elif item_type == "paragraph":
-                        reference_content.append(self._convert_paragraph(item_data[0]))
+                        reference_content.append(self._convert_paragraph(item_data[0], is_reference_section))
+                        reference_content.append(self._convert_heading(heading_text, heading_level))
                     elif item_type == "code":
                         code_content, code_language = item_data[0], item_data[1] if len(item_data) > 1 else ""
                         reference_content.append(self.code_formatter.format_code_block(code_content, code_language))
@@ -2185,12 +2205,15 @@ class WeChatHTMLConverter:
                         reference_content.append(self.mermaid_processor.format_mermaid(item_data[0]))
                     elif item_type == "list":
                         list_structure, is_ordered = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else False
-                        reference_content.append(self._convert_list(list_structure, is_ordered))
+                        reference_content.append(self._convert_list(list_structure, is_ordered, is_reference_section))
                     elif item_type == "table":
                         table_rows, alignments = item_data[0] if len(item_data) > 0 else [], item_data[1] if len(item_data) > 1 else ['left']
-                        reference_content.append(self._convert_table(table_rows, alignments))
+                        reference_content.append(self._convert_table(table_rows, alignments, is_reference_section))
                     elif item_type == "horizontal_rule":
                         reference_content.append(self._convert_horizontal_rule())
+                    elif item_type == "blockquote":
+                        quote_text = item_data[0] if len(item_data) > 0 else ""
+                        reference_content.append(self._convert_blockquote(quote_text, is_reference_section))
                     elif item_type == "empty":
                         reference_content.append("<br>")
                 # 为参考文献内容添加小字体和浅色样式
@@ -2225,12 +2248,15 @@ class WeChatHTMLConverter:
                         html_parts.append(self._convert_table(table_rows, alignments))
                     elif item_type == "horizontal_rule":
                         html_parts.append(self._convert_horizontal_rule())
+                    elif item_type == "blockquote":
+                        quote_text = item_data[0] if len(item_data) > 0 else ""
+                        html_parts.append(self._convert_blockquote(quote_text))
                     elif item_type == "empty":
                         html_parts.append("<br>")
         
         return "".join(html_parts)
     
-    def _convert_heading(self, text: str, level: int) -> str:
+    def _convert_heading(self, text: str, level: int, is_reference_section: bool = False) -> str:
         """转换标题"""
         # 根据级别设置样式
         if level == 1:
@@ -2238,15 +2264,15 @@ class WeChatHTMLConverter:
             return ''
         elif level == 2:
             # H2 使用粗横线中间为标题的格式
-            return f'<div style="text-align:center;margin:20px 0;"><hr style="border:none;border-top:2px solid {self.style_config.h2_title_line_color};margin:0;width:100%;"><span style="background:{self.style_config.card_bg_color};padding:0 15px;position:relative;top:-12px;font-weight:bold;font-size:{self.style_config.h2_title_font_size};color:{self.style_config.h2_title_text_color};">{self._convert_inline_markdown(text)}</span></div>'
+            return f'<div style="text-align:center;margin:20px 0;"><hr style="border:none;border-top:2px solid {self.style_config.h2_title_line_color};margin:0;width:100%;"><span style="background:{self.style_config.card_bg_color};padding:0 15px;position:relative;top:-12px;font-weight:bold;font-size:{self.style_config.h2_title_font_size};color:{self.style_config.h2_title_text_color};">{self._convert_inline_markdown(text, is_reference_section)}</span></div>'
         elif level == 3:
             # H3 使用卡片式样式（作为 H2 的子标题）
-            return f'<p style="background-color:{self.style_config.h3_title_bg_color};border-left:4px solid {self.style_config.h3_title_border_color};padding:8px 12px;margin:15px 0;border-radius:4px;"><span style="font-weight:bold;font-size:{self.style_config.h3_title_font_size};color:{self.style_config.h3_title_text_color};">{self._convert_inline_markdown(text)}</span></p>'
+            return f'<p style="background-color:{self.style_config.h3_title_bg_color};border-left:4px solid {self.style_config.h3_title_border_color};padding:8px 12px;margin:15px 0;border-radius:4px;"><span style="font-weight:bold;font-size:{self.style_config.h3_title_font_size};color:{self.style_config.h3_title_text_color};">{self._convert_inline_markdown(text, is_reference_section)}</span></p>'
         else:
             # H4+ 使用加粗样式
-            return f'<span style="font-weight:bold;color:{self.style_config.card_text_color};">{self._convert_inline_markdown(text)}</span><br>'
+            return f'<span style="font-weight:bold;color:{self.style_config.card_text_color};">{self._convert_inline_markdown(text, is_reference_section)}</span><br>'
     
-    def _convert_paragraph(self, text: str) -> str:
+    def _convert_paragraph(self, text: str, is_reference_section: bool = False) -> str:
         """转换段落"""
         if not text.strip():
             return ""
@@ -2259,7 +2285,7 @@ class WeChatHTMLConverter:
         for i, line in enumerate(lines):
             if line.strip():
                 # 非空行：转换内联 Markdown
-                html_lines.append(self._convert_inline_markdown(line))
+                html_lines.append(self._convert_inline_markdown(line, is_reference_section))
                 prev_line_empty = False
             else:
                 # 空行：如果前一行不是空行，添加一个 <br>（避免连续空行产生多个换行）
@@ -2284,6 +2310,41 @@ class WeChatHTMLConverter:
         # 使用 <hr> 标签，添加样式使其在微信中正确显示
         # 使用主题颜色作为分割线颜色
         return f'<hr style="border:none;border-top:1px solid {self.style_config.h2_h3_card_border_color};margin:20px 0;width:100%;"><br>'
+    
+    def _convert_blockquote(self, text: str, is_reference_section: bool = False) -> str:
+        """
+        转换引用块（blockquote）
+        
+        Args:
+            text: 引用文本
+            is_reference_section: 是否在参考文献部分
+        
+        Returns:
+            HTML 字符串（带增强显示效果的引用块）
+        """
+        if not text.strip():
+            return ""
+        
+        # 转换内联 Markdown 格式
+        converted_text = self._convert_inline_markdown(text, is_reference_section)
+        
+        # 引用块样式：
+        # - 左侧添加深色竖条（使用主题颜色）
+        # - 浅灰色背景
+        # - 斜体文字
+        # - 适当的内边距和圆角
+        quote_style = (
+            f'background-color:rgba(240, 240, 240, 0.6);'
+            f'border-left:4px solid {self.style_config.h3_title_border_color};'
+            f'padding:12px 16px;'
+            f'margin:15px 0;'
+            f'border-radius:4px;'
+            f'font-style:italic;'
+            f'color:{self.style_config.card_text_color};'
+            f'line-height:1.8;'
+        )
+        
+        return f'<div style="{quote_style}">{converted_text}</div><br>'
     
     def _build_list_structure(self, items: List[Tuple[str, int]], base_indent: int, is_ordered: bool) -> List:
         """
@@ -2334,7 +2395,7 @@ class WeChatHTMLConverter:
         
         return result
     
-    def _convert_list_item_with_bold_colon(self, text: str) -> str:
+    def _convert_list_item_with_bold_colon(self, text: str, is_reference_section: bool = False) -> str:
         """
         转换列表项文本
         
@@ -2374,7 +2435,7 @@ class WeChatHTMLConverter:
                 desc_before = bold_match.group(2).strip()  # 公式前的描述部分
                 
                 # 处理加粗部分（包含冒号）
-                converted_bold = self._convert_inline_markdown(bold_part)
+                converted_bold = self._convert_inline_markdown(bold_part, is_reference_section, is_in_list_item=True)
                 bold_html = converted_bold.replace('</strong>', f'{zw_char}</strong>')
                 if '：' in bold_html or ':' in bold_html:
                     bold_html = re.sub(r'(</strong>)([：:])', lambda m: f'{m.group(1)}{zw_char}{zw_char}{zw_char}{m.group(2)}{zw_char}', bold_html)
@@ -2383,7 +2444,7 @@ class WeChatHTMLConverter:
                 # 组合：加粗部分 + 公式前的描述 + 公式 + 公式后的描述
                 desc_parts = []
                 if desc_before:
-                    desc_parts.append(self._convert_inline_markdown(desc_before))
+                    desc_parts.append(self._convert_inline_markdown(desc_before, is_reference_section, is_in_list_item=True))
                 
                 # 公式（换行显示，块级公式）
                 formula_html = self.formula_processor.format_block_formula(formula_content)
@@ -2391,7 +2452,7 @@ class WeChatHTMLConverter:
                 
                 # 公式后的文本作为描述部分继续
                 if after_formula:
-                    desc_parts.append(self._convert_inline_markdown(after_formula))
+                    desc_parts.append(self._convert_inline_markdown(after_formula, is_reference_section, is_in_list_item=True))
                 
                 # 组合所有部分
                 desc_html = ''.join(desc_parts)
@@ -2413,7 +2474,7 @@ class WeChatHTMLConverter:
                     desc_before = before_formula[colon_pos + 1:].strip()
                     
                     # 处理标题部分
-                    converted_title = self._convert_inline_markdown(title_part)
+                    converted_title = self._convert_inline_markdown(title_part, is_reference_section, is_in_list_item=True)
                     title_html = re.sub(r'(</\w+>)([：:])', lambda m: f'{m.group(1)}{zw_char}{zw_char}{zw_char}{m.group(2)}{zw_char}', converted_title)
                     if '：' in title_html or ':' in title_html:
                         title_html = re.sub(r'(</\w+>)([：:])', lambda m: f'{m.group(1)}{zw_char}{zw_char}{zw_char}{m.group(2)}{zw_char}', title_html)
@@ -2422,7 +2483,7 @@ class WeChatHTMLConverter:
                     # 组合描述部分
                     desc_parts = []
                     if desc_before:
-                        desc_parts.append(self._convert_inline_markdown(desc_before))
+                        desc_parts.append(self._convert_inline_markdown(desc_before, is_reference_section, is_in_list_item=True))
                     
                     # 公式
                     formula_html = self.formula_processor.format_block_formula(formula_content)
@@ -2430,7 +2491,7 @@ class WeChatHTMLConverter:
                     
                     # 公式后的文本
                     if after_formula:
-                        desc_parts.append(self._convert_inline_markdown(after_formula))
+                        desc_parts.append(self._convert_inline_markdown(after_formula, is_reference_section, is_in_list_item=True))
                     
                     desc_html = ''.join(desc_parts)
                     if desc_before.startswith(' '):
@@ -2440,7 +2501,7 @@ class WeChatHTMLConverter:
                 else:
                     # 没有冒号，正常处理各部分
                     if before_formula.strip():
-                        result_parts.append(self._convert_inline_markdown(before_formula))
+                        result_parts.append(self._convert_inline_markdown(before_formula, is_reference_section, is_in_list_item=True))
                     
                     # 公式
                     formula_html = self.formula_processor.format_block_formula(formula_content)
@@ -2448,14 +2509,14 @@ class WeChatHTMLConverter:
                     
                     # 公式后的文本
                     if after_formula.strip():
-                        result_parts.append(self._convert_inline_markdown(after_formula))
+                        result_parts.append(self._convert_inline_markdown(after_formula, is_reference_section, is_in_list_item=True))
                     
                     return ''.join(result_parts)
         
         # 没有公式，正常处理
-        return self._convert_list_item_text_part(text, zw_char)
+        return self._convert_list_item_text_part(text, zw_char, is_reference_section)
     
-    def _convert_list_item_text_part(self, text: str, zw_char: str) -> str:
+    def _convert_list_item_text_part(self, text: str, zw_char: str, is_reference_section: bool = False) -> str:
         """
         转换列表项文本部分（不包含公式）
         
@@ -2476,7 +2537,7 @@ class WeChatHTMLConverter:
             desc_part = bold_match.group(2).strip()  # 描述文本
             
             # 转换加粗部分（包含冒号）
-            converted_bold = self._convert_inline_markdown(bold_part)
+            converted_bold = self._convert_inline_markdown(bold_part, is_reference_section, is_in_list_item=True)
             
             # 在 </strong> 和冒号之间插入多个零宽字符，确保冒号不会单独换到下一行
             # 在冒号前插入多个零宽字符，形成更强的防换行连接
@@ -2490,7 +2551,7 @@ class WeChatHTMLConverter:
             
             # 转换描述部分
             if desc_part:
-                desc_html = self._convert_inline_markdown(desc_part)
+                desc_html = self._convert_inline_markdown(desc_part, is_reference_section, is_in_list_item=True)
                 # 只将描述文本的第一个空格替换为 &nbsp;，防止在冒号后立即换行
                 # 但描述文本本身可以换行（不包裹在 nowrap 中）
                 if desc_part.startswith(' '):
@@ -2505,10 +2566,63 @@ class WeChatHTMLConverter:
         
         # 匹配模式2：普通文本：描述（无加粗但有冒号）
         # 匹配格式：文本（可能包含代码、链接等）：描述
+        # 首先检查整个文本是否是一个完整的链接 [text](url)
+        # 如果是完整链接，直接转换，不进行冒号分割
+        link_pattern = r'^\[([^\]]+)\]\(([^)]+)\)$'
+        link_match = re.match(link_pattern, text.strip())
+        if link_match:
+            # 整个文本是一个完整链接，直接转换（传递 is_in_list_item=True）
+            return self._convert_inline_markdown(text, is_reference_section, is_in_list_item=True)
+        
         # 查找第一个冒号（中文或英文）的位置
+        # 需要排除：
+        # 1. URL中的://
+        # 2. 链接括号内的冒号
+        # 3. 颜色标记中的冒号 {color:
         colon_pos = -1
+        in_link = False  # 是否在链接的括号内
+        in_color_tag = False  # 是否在颜色标记内
         for i, char in enumerate(text):
+            # 检查是否进入颜色标记 {color: 或 {color:
+            if i > 0 and text[i-6:i+1] == '{color:':
+                in_color_tag = True
+            # 检查是否离开颜色标记（遇到}）
+            elif in_color_tag and char == '}':
+                in_color_tag = False
+                continue
+            
+            # 检查是否进入或离开链接的括号
+            if i > 0 and text[i-1] == ']' and char == '(':
+                in_link = True
+            elif in_link and char == ')':
+                in_link = False
+                continue
+            
+            # 如果在链接内或颜色标记内，跳过冒号
+            if in_link or in_color_tag:
+                continue
+            
+            # 检查是否是URL协议中的://
             if char in '：:':
+                # 检查是否是://的一部分
+                if i > 0 and text[i-1] == '/' and i < len(text) - 1 and text[i+1] == '/':
+                    continue
+                # 检查是否在颜色标记中 {color: 或 {color:
+                # 向前查找最多7个字符，看是否是 {color:
+                start = max(0, i - 6)
+                if text[start:i+1].endswith('{color:'):
+                    in_color_tag = True
+                    continue
+                # 检查冒号是否在链接的方括号内 [text:...](url)
+                # 如果冒号前面有 [ 且后面有 ]，说明在链接文本内，不应该分割
+                if '[' in text[:i] and ']' in text[i:]:
+                    # 检查是否在链接的方括号内
+                    last_open_bracket = text.rfind('[', 0, i)
+                    if last_open_bracket >= 0:
+                        next_close_bracket = text.find(']', i)
+                        if next_close_bracket > i:
+                            # 冒号在链接的方括号内，跳过
+                            continue
                 colon_pos = i
                 break
         
@@ -2518,7 +2632,7 @@ class WeChatHTMLConverter:
             desc_part = text[colon_pos + 1:].strip()  # 描述文本
             
             # 转换标题部分（包含冒号）
-            converted_title = self._convert_inline_markdown(title_part)
+            converted_title = self._convert_inline_markdown(title_part, is_reference_section, is_in_list_item=True)
             
             # 在冒号前后插入多个零宽字符，确保冒号不会单独换到下一行
             # 处理 </code>、</strong> 等标签后的冒号
@@ -2533,7 +2647,7 @@ class WeChatHTMLConverter:
             
             # 转换描述部分
             if desc_part:
-                desc_html = self._convert_inline_markdown(desc_part)
+                desc_html = self._convert_inline_markdown(desc_part, is_reference_section, is_in_list_item=True)
                 # 只将描述文本的第一个空格替换为 &nbsp;，防止在冒号后立即换行
                 # 但描述文本本身可以换行（不包裹在 nowrap 中）
                 if desc_part.startswith(' '):
@@ -2547,9 +2661,9 @@ class WeChatHTMLConverter:
                 return f'<span style="white-space: nowrap;">{title_html}</span>'
         
         # 不匹配任何模式，正常转换（无冒号的普通文本）
-        return self._convert_inline_markdown(text)
+        return self._convert_inline_markdown(text, is_reference_section, is_in_list_item=True)
     
-    def _convert_list(self, list_structure: List, is_ordered: bool) -> str:
+    def _convert_list(self, list_structure: List, is_ordered: bool, is_reference_section: bool = False) -> str:
         """
         将列表结构转换为 HTML
         
@@ -2567,26 +2681,38 @@ class WeChatHTMLConverter:
         html_items = []
         
         for item in list_structure:
+            # 如果是参考文献部分，为列表项添加不换行样式（横向滚动在容器上）
+            if is_reference_section:
+                li_style = 'white-space:nowrap;'
+            else:
+                li_style = ''
+            
             if len(item) == 3:
                 # 有嵌套列表
                 text, indent, nested_list = item
                 # 使用特殊处理方法来处理加粗文本+冒号的格式
-                converted_text = self._convert_list_item_with_bold_colon(text)
-                nested_html = self._convert_list(nested_list, is_ordered)
-                item_html = f"<li>{converted_text}{nested_html}</li>"
+                converted_text = self._convert_list_item_with_bold_colon(text, is_reference_section)
+                nested_html = self._convert_list(nested_list, is_ordered, is_reference_section)
+                item_html = f"<li style=\"{li_style}\">{converted_text}{nested_html}</li>"
                 html_items.append(item_html)
             else:
                 # 普通列表项
                 text, indent = item
                 # 使用特殊处理方法来处理加粗文本+冒号的格式
-                converted_text = self._convert_list_item_with_bold_colon(text)
-                item_html = f"<li>{converted_text}</li>"
+                converted_text = self._convert_list_item_with_bold_colon(text, is_reference_section)
+                item_html = f"<li style=\"{li_style}\">{converted_text}</li>"
                 html_items.append(item_html)
         
-        list_html = f"<{tag} style=\"margin:10px 0;padding-left:20px;line-height:1.8;\">" + "".join(html_items) + f"</{tag}>"
+        # 如果是参考文献部分，为整个列表容器添加横向滚动样式
+        if is_reference_section:
+            list_style = "margin:10px 0;padding-left:30px;line-height:1.8;overflow-x:auto;"
+        else:
+            list_style = "margin:10px 0;padding-left:20px;line-height:1.8;"
+        
+        list_html = f"<{tag} style=\"{list_style}\">" + "".join(html_items) + f"</{tag}>"
         return list_html
     
-    def _convert_table(self, table_rows: List[Tuple], alignments: List[str]) -> str:
+    def _convert_table(self, table_rows: List[Tuple], alignments: List[str], is_reference_section: bool = False) -> str:
         """
         将表格转换为 HTML（使用微信兼容的方式，不使用 table 标签）
         
@@ -2635,7 +2761,7 @@ class WeChatHTMLConverter:
                     cell_style = f"{cell_style_base}{text_align}"
                 
                 # 转换单元格内容
-                cell_content = self._convert_inline_markdown(cell_text)
+                cell_content = self._convert_inline_markdown(cell_text, is_reference_section)
                 
                 # 使用 span 标签模拟表格单元格（微信不支持 table 标签）
                 # 注意：使用 flex 或 table-cell 可能不被微信支持，所以使用 inline-block
@@ -2664,8 +2790,15 @@ class WeChatHTMLConverter:
         table_html = f'<div style="border-top:1px solid {self.style_config.h2_h3_card_border_color};border-bottom:1px solid {self.style_config.h2_h3_card_border_color};margin:15px 0;overflow:hidden;">{"".join(html_parts)}</div>'
         return table_html + "<br>"
     
-    def _convert_inline_markdown(self, text: str) -> str:
-        """转换内联 Markdown（粗体、代码、链接、行内公式等）"""
+    def _convert_inline_markdown(self, text: str, is_reference_section: bool = False, is_in_list_item: bool = False) -> str:
+        """
+        转换内联 Markdown（粗体、代码、链接、行内公式等）
+        
+        Args:
+            text: 要转换的文本
+            is_reference_section: 是否在参考文献部分（用于特殊处理链接格式）
+            is_in_list_item: 是否在列表项中（用于区分列表项和非列表项的链接处理）
+        """
         # 使用占位符方法：先处理所有需要生成 HTML 的内容，然后统一转义
         
         # 第一步：处理行内数学公式 $...$（但不处理 $$...$$，因为那是块级公式）
@@ -2691,9 +2824,9 @@ class WeChatHTMLConverter:
         text = re.sub(r'(?<!\$)\$([^$]+)\$(?!\$)', replace_inline_formula, text)
         
         # 第二步：处理颜色语法（使用占位符方法，避免被转义）
-        # 支持以下语法：
-        # 1. **文字**{color:#ff0000} - 加粗+颜色
-        # 2. [文字]{color:#ff0000} - 仅颜色
+        # 支持以下语法（推荐使用前两种，边界明确）：
+        # 1. **文字**{color:#ff0000} - 加粗+颜色（推荐）
+        # 2. [文字]{color:#ff0000} - 仅颜色（推荐）
         # 3. {color:#ff0000}文字{/color} - 标签风格的颜色
         
         color_placeholders = {}
@@ -2706,7 +2839,15 @@ class WeChatHTMLConverter:
             color_counter += 1
             return placeholder
         
-        # 处理加粗+颜色组合：**text**{color:#ff0000}
+        # 首先，清理文本中的零宽字符（这些字符可能干扰正则匹配）
+        # 零宽字符包括：
+        # - 零宽空格(U+200B)、零宽不连字(U+200C)、零宽连字(U+200D)
+        # - 字节序标记(U+FEFF)
+        # - 左至右标记(U+200E)、右至左标记(U+200F)
+        # - 其他不可见字符
+        text = re.sub(r'[\u200B-\u200F\uFEFF\u2060-\u206F]', '', text)
+        
+        # 处理加粗+颜色组合：**text**{color:#ff0000} 或 **text**{color: #ff0000}
         def replace_bold_color(match):
             content = match.group(1)
             color = match.group(2)
@@ -2719,9 +2860,10 @@ class WeChatHTMLConverter:
                 # 如果颜色无效，只保留加粗，不创建占位符
                 return f'**{content}**'
         
-        text = re.sub(r'\*\*([^*]+)\*\*\{color:([^}]+)\}', replace_bold_color, text)
+        # 允许 color: 后面有可选的空格
+        text = re.sub(r'\*\*([^*]+)\*\*\{color:\s*([^}]+)\}', replace_bold_color, text)
         
-        # 处理仅颜色：[text]{color:#ff0000}
+        # 处理仅颜色：[text]{color:#ff0000} 或 [text]{color: #ff0000}
         def replace_color_only(match):
             content = match.group(1)
             color = match.group(2)
@@ -2733,9 +2875,10 @@ class WeChatHTMLConverter:
                 # 如果颜色无效，返回原文本
                 return match.group(0)
         
-        text = re.sub(r'\[([^\]]+)\]\{color:([^}]+)\}', replace_color_only, text)
+        # 允许 color: 后面有可选的空格
+        text = re.sub(r'\[([^\]]+)\]\{color:\s*([^}]+)\}', replace_color_only, text)
         
-        # 处理标签风格的颜色：{color:#ff0000}text{/color}
+        # 处理标签风格的颜色：{color:#ff0000}text{/color} 或 {color: #ff0000}text{/color}
         def replace_color_tag(match):
             content = match.group(2)  # 注意：第二个是内容
             color = match.group(1)    # 第一个是颜色
@@ -2747,7 +2890,24 @@ class WeChatHTMLConverter:
                 # 如果颜色无效，返回原文本
                 return match.group(0)
         
-        text = re.sub(r'\{color:([^}]+)\}([^{]+)\{/color\}', replace_color_tag, text)
+        # 允许 color: 后面有可选的空格
+        text = re.sub(r'\{color:\s*([^}]+)\}([^{]+)\{/color\}', replace_color_tag, text)
+        
+        # 第三步：处理 HTML 标签（如 <br>, <br/>）使用占位符，避免被转义
+        html_tag_placeholders = {}
+        html_tag_counter = 0
+        
+        def replace_html_tag(match):
+            nonlocal html_tag_counter
+            tag = match.group(0)  # 完整的标签，如 <br> 或 <br/>
+            placeholder = f"__HTMLTAG{html_tag_counter}__"
+            html_tag_placeholders[placeholder] = tag
+            html_tag_counter += 1
+            return placeholder
+        
+        # 匹配常见的 HTML 标签（如 <br>, <br/>, <br />, <p>, </p> 等）
+        # 但只匹配简单的自闭合标签和换行标签，避免匹配复杂的标签
+        text = re.sub(r'<(br\s*/?|p\s*/?|/p\s*|div\s*/?|/div\s*|span\s*/?|/span\s*)>', replace_html_tag, text, flags=re.IGNORECASE)
         
         # 第三步：处理 HTML 标签（如 <br>, <br/>）使用占位符，避免被转义
         html_tag_placeholders = {}
@@ -2792,17 +2952,41 @@ class WeChatHTMLConverter:
             url = match.group(2).strip()
             title = match.group(3) if len(match.groups()) > 2 and match.group(3) else None
             
+            # 清理URL中的零宽字符（可能在之前处理中被插入）
+            # 零宽字符：零宽不连字(U+200C)、零宽空格(U+200B)、零宽连字(U+200D)
+            import re
+            url_cleaned = re.sub(r'[\u200B-\u200D\uFEFF]', '', url)
+            # 清理协议和URL之间的空格（如 "https: //" -> "https://"）
+            url_cleaned = re.sub(r'(https?):\s*//', r'\1://', url_cleaned)
+            # 清理开头的多余空格和斜杠
+            url_cleaned = url_cleaned.lstrip().lstrip('/')
+            # 如果清理后没有协议，尝试添加 https://
+            if not url_cleaned.startswith(('http://', 'https://')):
+                if url_cleaned.startswith('mp.weixin.qq.com'):
+                    url_cleaned = 'https://' + url_cleaned
+                elif '://' not in url_cleaned:
+                    url_cleaned = 'https://' + url_cleaned.lstrip('/')
+            
+            # 如果是参考文献部分，先检查是否是微信内部链接（在URL编码之前检查）
+            # 检查URL中是否包含 mp.weixin.qq.com/s（支持 http/https，支持查询参数）
+            is_wechat_link = False
+            if is_reference_section:
+                is_wechat_link = (
+                    'mp.weixin.qq.com' in url_cleaned
+                )
+            
             # URL 转义：确保 URL 中的特殊字符被正确编码
             # 但保持已有的编码不变
             import urllib.parse
+            # 使用清理后的URL进行编码
             # 检查 URL 是否已经是编码过的（简单判断）
-            if '%' in url and any(c in url for c in ['%20', '%2F', '%3A', '%3F']):
+            if '%' in url_cleaned and any(c in url_cleaned for c in ['%20', '%2F', '%3A', '%3F']):
                 # 可能已经编码过，直接使用
-                escaped_url = url
+                escaped_url = url_cleaned
             else:
                 # 对 URL 进行编码，但保留协议部分
                 try:
-                    parsed = urllib.parse.urlparse(url)
+                    parsed = urllib.parse.urlparse(url_cleaned)
                     if parsed.scheme:
                         # 有协议，只编码路径、查询字符串等部分
                         path = urllib.parse.quote(parsed.path, safe='/')
@@ -2815,20 +2999,56 @@ class WeChatHTMLConverter:
                             escaped_url += f"#{fragment}"
                     else:
                         # 无协议，直接编码（但保留常见字符）
-                        escaped_url = urllib.parse.quote(url, safe='/:?=&')
+                        escaped_url = urllib.parse.quote(url_cleaned, safe='/:?=&')
                 except:
                     # 如果解析失败，直接转义特殊字符
-                    escaped_url = url.replace('&', '&amp;').replace('"', '&quot;').replace("'", '&#39;')
+                    escaped_url = url_cleaned.replace('&', '&amp;').replace('"', '&quot;').replace("'", '&#39;')
             
             # 构建链接 HTML（link_text 已经在前面转义过 HTML 特殊字符）
             # 添加微信兼容的样式：蓝色链接，下划线
             link_style = 'color:#576b95;text-decoration:underline;'
-            if title:
-                # 转义标题中的引号
-                escaped_title = title.replace('"', '&quot;').replace("'", '&#39;')
-                return f'<a href="{escaped_url}" title="{escaped_title}" style="{link_style}">{link_text}</a>'
+            
+            # 如果是参考文献部分且在列表项中，只显示文本和URL，不使用链接
+            if is_reference_section and is_in_list_item:
+                if is_wechat_link:
+                    # 微信内部链接：只显示链接文本，不显示URL
+                    # 在链接文本中的冒号前后添加零宽字符，防止换行
+                    zw_char = '\u200B\u200C\u200D'  # 零宽字符组合
+                    link_text_processed = link_text
+                    # 在冒号前后插入零宽字符，防止换行
+                    link_text_processed = re.sub(r'([：:])', lambda m: f'{zw_char}{m.group(1)}{zw_char}', link_text_processed)
+                    return f'{link_text_processed}'
+                else:
+                    # 外部链接：显示"名称（URL）"格式，不使用链接
+                    # 转义URL用于显示（转义HTML特殊字符，使用清理后的URL）
+                    display_url = (url_cleaned.replace('&', '&amp;')
+                                  .replace('<', '&lt;')
+                                  .replace('>', '&gt;')
+                                  .replace('"', '&quot;')
+                                  .replace("'", '&#39;'))
+                    return f'{link_text}（{display_url}）'
             else:
-                return f'<a href="{escaped_url}" style="{link_style}">{link_text}</a>'
+                # 非列表项或非参考文献部分，使用 <a> 标签
+                if is_reference_section and is_wechat_link:
+                    # 参考文献部分的微信内部链接：在链接文本中的冒号前后添加零宽字符，防止换行
+                    zw_char = '\u200B\u200C\u200D'  # 零宽字符组合
+                    link_text_processed = link_text
+                    # 在冒号前后插入零宽字符，防止换行
+                    link_text_processed = re.sub(r'([：:])', lambda m: f'{zw_char}{m.group(1)}{zw_char}', link_text_processed)
+                    # 使用 nowrap 样式防止链接文本换行
+                    link_style_nowrap = link_style + 'white-space:nowrap;'
+                    if title:
+                        escaped_title = title.replace('"', '&quot;').replace("'", '&#39;')
+                        return f'<a href="{escaped_url}" title="{escaped_title}" style="{link_style_nowrap}">{link_text_processed}</a>'
+                    else:
+                        return f'<a href="{escaped_url}" style="{link_style_nowrap}">{link_text_processed}</a>'
+                else:
+                    # 其他情况：正常使用 <a> 标签
+                    if title:
+                        escaped_title = title.replace('"', '&quot;').replace("'", '&#39;')
+                        return f'<a href="{escaped_url}" title="{escaped_title}" style="{link_style}">{link_text}</a>'
+                    else:
+                        return f'<a href="{escaped_url}" style="{link_style}">{link_text}</a>'
         
         # 匹配 [text](url "title") 或 [text](url)
         # 先匹配带标题的（更具体，使用非贪婪匹配）

@@ -51,6 +51,9 @@ htmlcov/
 *.html
 !examples/*.html
 
+# Large files (exceed GitHub 100MB limit)
+*.zip
+
 # Temporary files
 *.tmp
 *.log

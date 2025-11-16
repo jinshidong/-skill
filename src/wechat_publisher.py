@@ -895,17 +895,20 @@ JS_SET_SCHEDULED_PUBLISH = r'''
             return {ok: false, error: '未找到发表对话框'};
         }
         
-        // 查找"定时发表"开关
+        // 查找"定时发表"开关（使用多候选选择器）
         let scheduledToggle = null;
-        const scheduledLabels = modal.querySelectorAll('label, span, div');
+        
+        // 方法1: 通过文本标签查找（支持中英文）
+        const scheduledTexts = ['定时发表', '定时发布', 'Scheduled', 'Schedule', '定时', 'Scheduled Publish'];
+        const scheduledLabels = modal.querySelectorAll('label, span, div, button');
         for (const label of scheduledLabels) {
             const text = label.textContent.trim();
-            if (text.includes('定时发表') || text.includes('定时发表')) {
+            if (scheduledTexts.some(t => text.includes(t))) {
                 // 查找附近的开关
                 let parent = label.parentElement;
-                for (let i = 0; i < 3; i++) {
+                for (let i = 0; i < 5; i++) {
                     if (parent) {
-                        const toggle = parent.querySelector('input[type="checkbox"], .switch, [class*="toggle"], [class*="switch"]');
+                        const toggle = parent.querySelector('input[type="checkbox"], input[type="radio"], .switch, [class*="toggle"], [class*="switch"], [role="switch"], [role="checkbox"]');
                         if (toggle) {
                             scheduledToggle = toggle;
                             break;
@@ -917,12 +920,54 @@ JS_SET_SCHEDULED_PUBLISH = r'''
             }
         }
         
-        // 如果找不到，尝试通过类名查找
+        // 方法2: 通过 aria-label 或 data-* 属性查找
         if (!scheduledToggle) {
-            const toggles = modal.querySelectorAll('input[type="checkbox"], .switch, [class*="toggle"]');
-            // 通常第二个开关是定时发表
-            if (toggles.length >= 2) {
-                scheduledToggle = toggles[1];
+            const toggles = modal.querySelectorAll('input[type="checkbox"], input[type="radio"], [role="switch"], [role="checkbox"]');
+            for (const toggle of toggles) {
+                const ariaLabel = toggle.getAttribute('aria-label') || '';
+                const dataLabel = toggle.getAttribute('data-label') || '';
+                const title = toggle.getAttribute('title') || '';
+                const combined = (ariaLabel + ' ' + dataLabel + ' ' + title).toLowerCase();
+                if (scheduledTexts.some(t => combined.includes(t.toLowerCase()))) {
+                    scheduledToggle = toggle;
+                    break;
+                }
+            }
+        }
+        
+        // 方法3: 通过父元素文本查找
+        if (!scheduledToggle) {
+            const allToggles = modal.querySelectorAll('input[type="checkbox"], input[type="radio"], [role="switch"], [role="checkbox"]');
+            for (const toggle of allToggles) {
+                let parent = toggle.parentElement;
+                for (let i = 0; i < 3; i++) {
+                    if (parent) {
+                        const text = parent.textContent || '';
+                        if (scheduledTexts.some(t => text.includes(t))) {
+                            scheduledToggle = toggle;
+                            break;
+                        }
+                        parent = parent.parentElement;
+                    }
+                }
+                if (scheduledToggle) break;
+            }
+        }
+        
+        // 方法4: 如果找不到，尝试通过位置查找（通常第二个开关是定时发表）
+        if (!scheduledToggle) {
+            const toggles = Array.from(modal.querySelectorAll('input[type="checkbox"], input[type="radio"], [role="switch"], [role="checkbox"]'));
+            // 过滤掉隐藏的开关
+            const visibleToggles = toggles.filter(t => {
+                const style = window.getComputedStyle(t);
+                return style.display !== 'none' && style.visibility !== 'hidden' && t.offsetParent !== null;
+            });
+            // 通常第二个可见开关是定时发表
+            if (visibleToggles.length >= 2) {
+                scheduledToggle = visibleToggles[1];
+            } else if (visibleToggles.length >= 1 && enableScheduled) {
+                // 如果只有一个开关，也可能是定时发表
+                scheduledToggle = visibleToggles[0];
             }
         }
         
@@ -1874,6 +1919,12 @@ class WeChatPublisher:
             
             # 填充标题和作者（在主文档）
             if title or author:
+                # 检查并截断标题（微信限制64个字符）
+                if title and len(title) > 64:
+                    logger.warning(f"⚠️ 标题长度超过64个字符（{len(title)}），自动截断...")
+                    title = title[:64]
+                    logger.info(f"截断后的标题: '{title}'")
+                
                 logger.info(f"准备填充标题: '{title}', 作者: '{author}'")
                 title_author_result = self.page.evaluate(JS_SET_TITLE_AUTHOR, {
                     "title": title or "",
@@ -1889,7 +1940,19 @@ class WeChatPublisher:
                     
                     # 无论JavaScript是否成功，都使用Playwright方法确保设置（更可靠）
                     try:
-                        title_selectors = ['#js_title_main', '#title', 'textarea[name="title"]']
+                        # 扩展选择器列表，增加更多可能的标题输入框选择器
+                        title_selectors = [
+                            '#js_title_main', 
+                            '#title', 
+                            'textarea[name="title"]',
+                            'textarea[placeholder*="标题"]',
+                            'textarea[placeholder*="title"]',
+                            'textarea[class*="title"]',
+                            '[id*="title"]',
+                            'textarea.js_title',
+                            'textarea.js_title_main'
+                        ]
+                        title_set_success = False
                         for selector in title_selectors:
                             try:
                                 title_el = self.page.locator(selector).first
@@ -1897,25 +1960,73 @@ class WeChatPublisher:
                                     logger.info(f"使用Playwright设置标题: {selector}")
                                     # 先清空
                                     title_el.clear()
-                                    time.sleep(0.2)
-                                    # 填充标题
-                                    title_el.fill(title)
+                                    time.sleep(0.3)
+                                    # 使用type方法逐字符输入，更接近真实用户操作
+                                    title_el.type(title, delay=50)
                                     time.sleep(0.5)
-                                    # 触发键盘事件确保React/Vue框架识别
+                                    # 触发多种事件确保React/Vue框架识别
                                     title_el.press('Tab')  # 触发blur事件
                                     time.sleep(0.3)
-                                    # 验证
+                                    # 再次验证并重试
                                     actual_value = title_el.input_value()
                                     if actual_value == title or actual_value.strip() == title.strip():
                                         logger.info(f"✅ Playwright成功设置标题: '{actual_value}'")
                                         title_author_result['title'] = True
                                         title_author_result['titleValue'] = actual_value
+                                        title_set_success = True
                                         break
                                     else:
-                                        logger.warning(f"⚠️ 标题值不匹配，期望: '{title}', 实际: '{actual_value}'")
+                                        # 如果值不匹配，尝试重新设置
+                                        logger.warning(f"⚠️ 标题值不匹配，期望: '{title}', 实际: '{actual_value}'，重试...")
+                                        title_el.clear()
+                                        time.sleep(0.2)
+                                        title_el.fill(title)
+                                        time.sleep(0.5)
+                                        title_el.press('Tab')
+                                        time.sleep(0.3)
+                                        actual_value = title_el.input_value()
+                                        if actual_value == title or actual_value.strip() == title.strip():
+                                            logger.info(f"✅ 重试后成功设置标题: '{actual_value}'")
+                                            title_author_result['title'] = True
+                                            title_author_result['titleValue'] = actual_value
+                                            title_set_success = True
+                                            break
                             except Exception as e:
                                 logger.warning(f"使用Playwright设置标题时出错 ({selector}): {e}")
                                 continue
+                        
+                        # 如果所有选择器都失败，尝试使用JavaScript直接操作
+                        if not title_set_success:
+                            logger.warning("所有Playwright选择器都失败，尝试使用JavaScript直接设置...")
+                            js_set_title = f'''
+                            (function(){{
+                                const title = "{title.replace('"', '\\"')}";
+                                const selectors = ['#js_title_main', '#title', 'textarea[name="title"]', 'textarea[placeholder*="标题"]'];
+                                for (const sel of selectors) {{
+                                    const el = document.querySelector(sel);
+                                    if (el && el.offsetParent !== null) {{
+                                        el.value = title;
+                                        el.textContent = title;
+                                        el.innerText = title;
+                                        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                        el.dispatchEvent(new Event('keyup', {{ bubbles: true }}));
+                                        el.focus();
+                                        el.blur();
+                                        return {{success: true, selector: sel, value: el.value}};
+                                    }}
+                                }}
+                                return {{success: false}};
+                            }})();
+                            '''
+                            try:
+                                js_result = self.page.evaluate(js_set_title)
+                                if js_result.get('success'):
+                                    logger.info(f"✅ JavaScript成功设置标题: {js_result.get('value')}")
+                                    title_author_result['title'] = True
+                                    title_author_result['titleValue'] = js_result.get('value', title)
+                            except Exception as e:
+                                logger.warning(f"JavaScript设置标题失败: {e}")
                     except Exception as e:
                         logger.warning(f"使用Playwright设置标题失败: {e}")
                     
@@ -2185,6 +2296,699 @@ class WeChatPublisher:
             logger.error(f"获取编辑器内容失败: {e}")
             return None
     
+    def set_cover_image(
+        self, 
+        excerpt: str = "", 
+        image_path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        设置封面图片（通过拖拽本地图片文件）
+        
+        Args:
+            excerpt: 摘要文本（未使用，保留以兼容接口）
+            image_path: 图片路径（必需）
+        
+        Returns:
+            操作结果字典
+        """
+        if not self.page:
+            return {"ok": False, "error": "页面未初始化"}
+        
+        try:
+            logger.info("=" * 60)
+            logger.info("正在设置封面图片...")
+            logger.info("=" * 60)
+            
+            logger.info("步骤1: 直接拖拽本地图片文件到封面区域...")
+            
+            if not image_path:
+                return {"ok": False, "error": "需要提供image_path参数"}
+            
+            # 检查文件是否存在
+            import os
+            if not os.path.exists(image_path):
+                return {"ok": False, "error": f"图片文件不存在: {image_path}"}
+            
+            logger.info(f"准备拖拽图片文件到 #js_cover_area: {image_path}")
+            
+            # 优先使用 #js_cover_area，这是典型的拖拽上传区域
+            cover_drop_zone = None
+            try:
+                cover_drop_zone = self.page.locator('#js_cover_area').first
+                if cover_drop_zone.is_visible(timeout=3000):
+                    logger.info("✅ 找到 #js_cover_area 封面拖放区域")
+                else:
+                    logger.warning("⚠️ #js_cover_area 不可见，尝试其他选择器...")
+                    cover_drop_zone = None
+            except:
+                logger.warning("⚠️ 未找到 #js_cover_area，尝试其他选择器...")
+                cover_drop_zone = None
+            
+            # 如果 #js_cover_area 不存在，尝试其他选择器
+            if not cover_drop_zone:
+                cover_selectors = [
+                    '[id*="cover_area"]',
+                    '[id*="cover"]',
+                    'text=拖拽或选择封面',
+                    'div:has-text("拖拽或选择封面")'
+                ]
+                
+                for selector in cover_selectors:
+                    try:
+                        cover_drop_zone = self.page.locator(selector).first
+                        if cover_drop_zone.is_visible(timeout=2000):
+                            # 验证是否是封面区域（排除正文编辑器）
+                            element_id = cover_drop_zone.get_attribute('id')
+                            element_class = cover_drop_zone.get_attribute('class') or ''
+                            # 确保不在正文编辑器内
+                            if 'appmsg_content' not in (element_id or '') and 'edui' not in (element_id or ''):
+                                logger.info(f"✅ 找到封面拖放区域: {selector}")
+                                break
+                        cover_drop_zone = None
+                    except:
+                        continue
+            
+            if not cover_drop_zone:
+                return {"ok": False, "error": "未找到封面拖放区域 #js_cover_area"}
+            
+            # 检查是否在 iframe 中
+            frame_ctx = None
+            try:
+                if cover_drop_zone.count() == 0:
+                    # 如果在主页面找不到，尝试在 iframe 中查找
+                    logger.info("在主页面未找到 #js_cover_area，尝试在 iframe 中查找...")
+                    for frame in self.page.frames:
+                        try:
+                            frame_cover = frame.locator("#js_cover_area")
+                            if frame_cover.count() > 0:
+                                frame_ctx = frame
+                                logger.info(f"✅ 在 iframe 中找到 #js_cover_area: {frame.url}")
+                                break
+                        except:
+                            continue
+            except:
+                # 如果 count() 失败，尝试直接使用
+                pass
+            
+            # 确定执行上下文（主页面或 iframe）
+            if frame_ctx is None:
+                frame_ctx = self.page
+                target_cover_zone = cover_drop_zone
+            else:
+                target_cover_zone = frame_ctx.locator("#js_cover_area").first
+            
+            # 方案A：优先使用 #js_cover_area 内的 input[type="file"]（这是正确的上传方式）
+            file_uploaded = False
+            try:
+                # 直接定位 #js_cover_area 内的 input[type="file"]
+                # 优先使用精确选择器，如果找不到再尝试全局查找
+                file_input_selectors = [
+                    '#js_cover_area input[type="file"]',  # 精确选择器（推荐）
+                    'input[type="file"]'  # 备用：全局查找（可能找到其他文件输入框）
+                ]
+                
+                # 首先在 frame_ctx 中查找（可能是主页面或 iframe）
+                for selector in file_input_selectors:
+                    try:
+                        file_input = frame_ctx.locator(selector).first
+                        if file_input.count() > 0:
+                            # 验证这个 input 确实在 #js_cover_area 内（对于全局选择器）
+                            if selector == 'input[type="file"]':
+                                # 检查是否在 #js_cover_area 内
+                                is_in_cover_area = file_input.evaluate('''(el) => {
+                                    return el.closest('#js_cover_area') !== null;
+                                }''')
+                                if not is_in_cover_area:
+                                    logger.debug(f"找到的 input[type=\"file\"] 不在 #js_cover_area 内，跳过")
+                                    continue
+                            
+                            logger.info(f"✅ 找到文件输入框: {selector}，使用 setInputFiles() 上传...")
+                            file_input.set_input_files(image_path)
+                            file_uploaded = True
+                            logger.info("✅ 文件已通过 setInputFiles() 上传到 #js_cover_area")
+                            time.sleep(3)  # 等待上传处理
+                            break
+                    except Exception as e:
+                        logger.debug(f"尝试选择器 {selector} 失败: {e}")
+                        continue
+                
+                # 如果 frame_ctx 中找不到，且 frame_ctx 不是主页面，尝试在主页面查找
+                if not file_uploaded and frame_ctx != self.page:
+                    logger.info("在 frame_ctx 中未找到，尝试在主页面查找...")
+                    for selector in file_input_selectors:
+                        try:
+                            file_input = self.page.locator(selector).first
+                            if file_input.count() > 0:
+                                # 验证是否在 #js_cover_area 内
+                                if selector == 'input[type="file"]':
+                                    is_in_cover_area = file_input.evaluate('''(el) => {
+                                        return el.closest('#js_cover_area') !== null;
+                                    }''')
+                                    if not is_in_cover_area:
+                                        continue
+                                
+                                logger.info(f"✅ 在主页面找到文件输入框: {selector}，使用 setInputFiles() 上传...")
+                                file_input.set_input_files(image_path)
+                                file_uploaded = True
+                                logger.info("✅ 文件已通过 setInputFiles() 上传到 #js_cover_area")
+                                time.sleep(3)
+                                break
+                        except Exception as e:
+                            logger.debug(f"在主页面尝试选择器 {selector} 失败: {e}")
+                            continue
+                
+                if not file_uploaded:
+                    logger.warning("⚠️ 未找到 #js_cover_area 内的 input[type=\"file\"]，尝试备用方案...")
+                
+                # 方案B：如果没有文件输入框，使用 JavaScript 构造 DataTransfer + 拖拽事件
+                if not file_uploaded:
+                    logger.info("方案B: 使用 JavaScript 构造 DataTransfer + 拖拽事件上传...")
+                    # 读取文件内容
+                    import pathlib
+                    file_path_obj = pathlib.Path(image_path)
+                    if not file_path_obj.exists():
+                        return {"ok": False, "error": f"图片文件不存在: {image_path}"}
+                    
+                    file_buffer = file_path_obj.read_bytes()
+                    file_name = file_path_obj.name
+                    
+                    # 根据文件扩展名确定 MIME 类型
+                    mime_type = "image/png"
+                    if file_name.lower().endswith('.jpg') or file_name.lower().endswith('.jpeg'):
+                        mime_type = "image/jpeg"
+                    elif file_name.lower().endswith('.gif'):
+                        mime_type = "image/gif"
+                    elif file_name.lower().endswith('.webp'):
+                        mime_type = "image/webp"
+                    
+                    # 多个候选 drop 容器（有些真正监听拖拽的是内层容器）
+                    candidates = [
+                        "#js_cover_area .select-cover_inner_drop",
+                        "#js_cover_area .cover_drop_inner_wrp",
+                        "#js_cover_area .select-cover_outer_drop",
+                        "#js_cover_area"  # 最后兜底
+                    ]
+                    
+                    ok = False
+                    for sel in candidates:
+                        try:
+                            loc = frame_ctx.locator(sel).first
+                            if loc.count() == 0:
+                                continue
+                            
+                            logger.info(f"尝试拖拽到容器: {sel}")
+                            loc.scroll_into_view_if_needed()
+                            try:
+                                loc.hover()
+                            except:
+                                pass
+                            
+                            # 使用对象参数方式传递（Playwright evaluate 只接受一个参数对象）
+                            js_drag_drop = r'''
+                            (args) => {
+                                const sel = args.sel;
+                                const u8 = args.u8;
+                                const fname = args.fname;
+                                const mtype = args.mtype;
+                                
+                                const el = document.querySelector(sel);
+                                if (!el) {
+                                    return {ok: false, error: '找不到元素: ' + sel};
+                                }
+                                
+                                try {
+                                    // 构造 File（Blob -> File）
+                                    const blob = new Blob([new Uint8Array(u8)], { type: mtype });
+                                    const file = new File([blob], fname, { type: mtype });
+                                    
+                                    // 构造 DataTransfer，并把 File 塞进去
+                                    const dt = new DataTransfer();
+                                    dt.items.add(file);
+                                    
+                                    // 依次派发事件（dragenter/dragover/drop）
+                                    const fire = (type) => {
+                                        const evt = new DragEvent(type, {
+                                            bubbles: true,
+                                            cancelable: true,
+                                            dataTransfer: dt
+                                        });
+                                        return el.dispatchEvent(evt);
+                                    };
+                                    
+                                    fire('dragenter');
+                                    fire('dragover');
+                                    const dropResult = fire('drop');
+                                    
+                                    return {ok: true, message: '拖拽事件已触发', selector: sel, dropResult: dropResult};
+                                } catch (e) {
+                                    return {ok: false, error: String(e)};
+                                }
+                            }
+                            '''
+                            
+                            result = frame_ctx.evaluate(
+                                js_drag_drop,
+                                {
+                                    "sel": sel,
+                                    "u8": list(file_buffer),
+                                    "fname": file_name,
+                                    "mtype": mime_type
+                                }
+                            )
+                            
+                            if result and result.get('ok'):
+                                logger.info(f"✅ 拖拽事件已触发到 {sel}: {result.get('message')}")
+                                ok = True
+                                file_uploaded = True
+                                time.sleep(3)  # 等待上传处理
+                                break
+                            else:
+                                error_msg = result.get('error', '未知错误') if result else '返回值为空'
+                                logger.warning(f"拖拽到 {sel} 失败: {error_msg}")
+                        except Exception as e:
+                            logger.warning(f"尝试容器 {sel} 时出错: {e}")
+                            continue
+                    
+                    if not ok:
+                        logger.warning("所有候选容器都失败")
+                        
+            except Exception as e:
+                logger.warning(f"上传文件失败: {e}")
+            
+            if not file_uploaded:
+                return {"ok": False, "error": "无法上传文件到 #js_cover_area：未找到 input[type=\"file\"] 控件。封面上传必须使用 #js_cover_area 内的 input[type=\"file\"] 控件。"}
+            
+            # 等待上传完成，验证封面是否设置成功
+            logger.info("等待上传完成，验证封面是否设置成功...")
+            time.sleep(8)  # 增加等待时间，图片上传需要时间
+            
+            # 验证封面是否设置成功：使用 JavaScript 全面检查 #js_cover_area 内部
+            # 使用 frame_ctx 确保在正确的上下文中验证
+            cover_set_success = False
+            try:
+                # 使用 JavaScript 全面检查封面区域是否有图片或背景图
+                js_check_cover = r'''
+                (selector) => {
+                    const area = document.querySelector(selector);
+                    if (!area) {
+                        return {found: false, reason: '找不到封面区域'};
+                    }
+                    
+                    // 检查1: .js_cover_preview_new 可见且有背景图
+                    const preview = area.querySelector('.js_cover_preview_new');
+                    if (preview) {
+                        const style = window.getComputedStyle(preview);
+                        const bg = style.backgroundImage || preview.style.backgroundImage || '';
+                        if (bg && bg.includes('url(')) {
+                            return {found: true, method: '.js_cover_preview_new', bg: bg.substring(0, 100)};
+                        }
+                    }
+                    
+                    // 检查2: 任何图片元素
+                    const imgs = area.querySelectorAll('img');
+                    for (const img of imgs) {
+                        const src = img.src || img.getAttribute('src') || '';
+                        if (src && (src.includes('http') || src.includes('mmbiz'))) {
+                            return {found: true, method: 'img', src: src.substring(0, 100)};
+                        }
+                    }
+                    
+                    // 检查3: 任何有背景图的元素
+                    const allElements = area.querySelectorAll('*');
+                    for (const el of allElements) {
+                        const style = window.getComputedStyle(el);
+                        const bg = style.backgroundImage || el.style.backgroundImage || '';
+                        if (bg && bg.includes('url(') && !bg.includes('data:image/svg')) {
+                            return {found: true, method: 'background-image', bg: bg.substring(0, 100)};
+                        }
+                    }
+                    
+                    // 检查4: 检查是否有上传进度或错误提示
+                    const errorTexts = area.textContent || '';
+                    if (errorTexts.includes('失败') || errorTexts.includes('错误') || errorTexts.includes('error')) {
+                        return {found: false, reason: '检测到错误提示'};
+                    }
+                    
+                    return {found: false, reason: '未找到图片或背景图'};
+                }
+                '''
+                
+                # 在主页面和 iframe 中都检查
+                check_contexts = [frame_ctx]
+                if frame_ctx != self.page:
+                    check_contexts.append(self.page)
+                
+                for ctx in check_contexts:
+                    try:
+                        result = ctx.evaluate(js_check_cover, '#js_cover_area')
+                        if result and result.get('found'):
+                            logger.info(f"✅ 封面验证成功: {result.get('method')} - {result.get('bg') or result.get('src')}")
+                            cover_set_success = True
+                            break
+                        elif result and result.get('reason'):
+                            logger.debug(f"封面验证: {result.get('reason')}")
+                    except Exception as e:
+                        logger.debug(f"验证封面时出错: {e}")
+                        continue
+                
+                # 如果 JavaScript 验证失败，尝试 Playwright 选择器验证
+                if not cover_set_success:
+                    logger.info("JavaScript 验证失败，尝试 Playwright 选择器验证...")
+                    preview_selectors = [
+                        '.js_cover_preview_new',
+                        '[class*="cover_preview"]',
+                        '[class*="封面预览"]',
+                        '#js_cover_area img[src*="http"]',
+                        '#js_cover_area img[src*="mmbiz"]',
+                        '#js_cover_area [style*="background-image"]'
+                    ]
+                    
+                    for selector in preview_selectors:
+                        try:
+                            preview_alt = frame_ctx.locator(selector).first
+                            if preview_alt.is_visible(timeout=3000):
+                                # 检查背景图或图片
+                                bg_image = preview_alt.evaluate('''(el) => {
+                                    const style = window.getComputedStyle(el);
+                                    return style.backgroundImage || el.style.backgroundImage || '';
+                                }''')
+                                if bg_image and 'url(' in bg_image and not bg_image.includes('data:image/svg'):
+                                    logger.info(f"✅ Playwright 验证成功: {selector}，背景图: {bg_image[:80]}...")
+                                    cover_set_success = True
+                                    break
+                                # 或者检查图片元素
+                                if selector.startswith('#js_cover_area img'):
+                                    img_src = preview_alt.get_attribute('src')
+                                    if img_src and ('http' in img_src or 'mmbiz' in img_src):
+                                        logger.info(f"✅ Playwright 验证成功: {selector}，图片: {img_src[:80]}...")
+                                        cover_set_success = True
+                                        break
+                        except:
+                            continue
+                
+            except Exception as e:
+                logger.warning(f"验证封面状态时出错: {e}")
+            
+            # 如果验证失败，等待更长时间后再次验证
+            if not cover_set_success and file_uploaded:
+                logger.info("首次验证失败，等待更长时间后再次验证...")
+                time.sleep(5)
+                try:
+                    result = frame_ctx.evaluate(js_check_cover, '#js_cover_area')
+                    if result and result.get('found'):
+                        logger.info(f"✅ 二次验证成功: {result.get('method')} - {result.get('bg') or result.get('src')}")
+                        cover_set_success = True
+                except:
+                    pass
+            
+            if not cover_set_success:
+                logger.warning("⚠️ 封面验证失败：未找到图片或背景图，封面可能未成功设置")
+                # 不返回错误，但给出警告，让用户知道可能需要手动检查
+            else:
+                logger.info("✅ 封面设置验证成功")
+            
+            # 点击确认按钮（支持中英文，也检查 iframe）
+            logger.info("步骤3: 点击确认按钮（支持中英文）...")
+            confirm_clicked = False
+            
+            # 检查是否需要确认按钮（封面上传后可能不需要确认）
+            # 只在主页面和 iframe 中查找，最多尝试 5 次（2.5秒）
+            for attempt in range(5):  # 2.5秒，每0.5秒检查一次
+                time.sleep(0.5)
+                
+                confirm_selectors = [
+                    'text=确认',
+                    'text=确定',
+                    'text=Confirm',
+                    'text=OK',
+                    'button:has-text("确认")',
+                    'button:has-text("确定")',
+                    'button:has-text("Confirm")',
+                    'button:has-text("OK")',
+                    'button[class*="primary"]',
+                    'button[class*="submit"]',
+                    'button[type="submit"]'
+                ]
+                
+                # 在主页面查找
+                for selector in confirm_selectors:
+                    try:
+                        confirm_btn = self.page.locator(selector).first
+                        if confirm_btn.is_visible(timeout=500):
+                            # 验证按钮文本，确保是确认按钮
+                            btn_text = confirm_btn.text_content()
+                            if btn_text and any(t in btn_text for t in ['确认', '确定', 'Confirm', 'OK', '完成', 'Done']):
+                                logger.info(f"✅ 找到确认按钮: {selector} (文本: {btn_text})")
+                                confirm_btn.click()
+                                confirm_clicked = True
+                                time.sleep(2)
+                                break
+                    except:
+                        continue
+                
+                # 在 iframe 中查找
+                if not confirm_clicked and frame_ctx != self.page:
+                    for selector in confirm_selectors:
+                        try:
+                            confirm_btn = frame_ctx.locator(selector).first
+                            if confirm_btn.is_visible(timeout=500):
+                                btn_text = confirm_btn.text_content()
+                                if btn_text and any(t in btn_text for t in ['确认', '确定', 'Confirm', 'OK', '完成', 'Done']):
+                                    logger.info(f"✅ 在 iframe 中找到确认按钮: {selector} (文本: {btn_text})")
+                                    confirm_btn.click()
+                                    confirm_clicked = True
+                                    time.sleep(2)
+                                    break
+                        except:
+                            continue
+                
+                if confirm_clicked:
+                    break
+                
+                # 如果选择器方法失败，使用JavaScript查找（支持中英文，在主页面和 iframe 中）
+                if not confirm_clicked:
+                    js_find_confirm = r'''
+                    (function(){
+                        const texts = ['确认', '确定', 'Confirm', 'OK', '完成', 'Done'];
+                        const allElements = document.querySelectorAll('button, a, div, span, [role="button"]');
+                        for (const el of allElements) {
+                            const text = el.textContent.trim();
+                            for (const t of texts) {
+                                if (text === t || (text.includes(t) && text.length < 20)) {
+                                    const style = window.getComputedStyle(el);
+                                    if (el.offsetWidth > 0 && el.offsetHeight > 0 && style.display !== 'none') {
+                                        el.click();
+                                        return {found: true, text: text};
+                                    }
+                                }
+                            }
+                        }
+                        return {found: false};
+                    })();
+                    '''
+                    try:
+                        result = self.page.evaluate(js_find_confirm)
+                        if result.get('found'):
+                            logger.info(f"✅ JavaScript找到并点击确认按钮: {result.get('text')}")
+                            confirm_clicked = True
+                            time.sleep(2)
+                    except Exception as e:
+                        logger.warning(f"JavaScript查找确认按钮失败: {e}")
+                
+            if not confirm_clicked:
+                logger.warning("⚠️ 未找到确认按钮，尝试直接验证封面是否设置成功...")
+                time.sleep(2)
+            
+            logger.info("=" * 60)
+            logger.info("✅ 封面设置完成")
+            logger.info("=" * 60)
+            return {"ok": True, "message": "封面设置完成"}
+            
+        except Exception as e:
+            logger.error(f"设置封面失败: {e}")
+            return {"ok": False, "error": str(e)}
+    
+    def set_excerpt(self, excerpt: str) -> Dict[str, Any]:
+        """
+        设置摘要
+        
+        Args:
+            excerpt: 摘要文本
+        
+        Returns:
+            操作结果字典
+        """
+        if not self.page:
+            return {"ok": False, "error": "页面未初始化"}
+        
+        try:
+            logger.info("=" * 60)
+            logger.info(f"正在设置摘要: {excerpt}")
+            logger.info("=" * 60)
+            
+            # 1. 识别"选填，不填写则默认抓取正文开头部分文字，摘要会在转发卡片和公众号会话展示。"区域
+            # 2. 采用tag中的excerpt修改到对应的框中
+            
+            # 查找摘要输入框（优先查找弹窗中的输入框）
+            # 弹窗中的摘要输入框特征：placeholder包含"选填，不填写则默认抓取正文开头部分文字"
+            excerpt_selectors = [
+                'textarea[placeholder*="选填，不填写则默认抓取正文开头部分文字"]',
+                'textarea[placeholder*="摘要会在转发卡片"]',
+                'textarea[placeholder*="选填"]',
+                'input[placeholder*="选填，不填写则默认抓取正文开头部分文字"]',
+                'input[placeholder*="摘要会在转发卡片"]',
+                'textarea[placeholder*="摘要"]',
+                'input[placeholder*="摘要"]',
+                'textarea',
+                'input[type="text"]'
+            ]
+            
+            # 先通过提示文本查找（弹窗中的完整提示文本）
+            hint_text = "选填，不填写则默认抓取正文开头部分文字，摘要会在转发卡片和公众号会话展示。"
+            excerpt_filled = False
+            
+            # 方法1: 直接通过placeholder查找弹窗中的摘要输入框（最准确）
+            for selector in excerpt_selectors[:4]:  # 优先使用前4个更精确的选择器
+                try:
+                    excerpt_input = self.page.locator(selector).first
+                    if excerpt_input.is_visible(timeout=2000):
+                        logger.info(f"✅ 找到摘要输入框（弹窗中）: {selector}")
+                        excerpt_input.clear()
+                        time.sleep(0.2)
+                        excerpt_input.fill(excerpt)
+                        time.sleep(0.3)
+                        excerpt_input.press('Tab')
+                        excerpt_filled = True
+                        break
+                except:
+                    continue
+            
+            # 方法2: 通过提示文本附近的输入框查找
+            if not excerpt_filled:
+                try:
+                    # 查找包含提示文本的元素
+                    hint_element = self.page.locator(f'text={hint_text}').first
+                    if hint_element.is_visible(timeout=2000):
+                        logger.info("✅ 找到摘要提示文本")
+                        # 查找附近的输入框
+                        parent = hint_element.locator('..')
+                        textarea = parent.locator('textarea').first
+                        if textarea.is_visible(timeout=1000):
+                            logger.info("✅ 找到摘要输入框（通过提示文本）")
+                            textarea.clear()
+                            time.sleep(0.2)
+                            textarea.fill(excerpt)
+                            time.sleep(0.3)
+                            textarea.press('Tab')
+                            excerpt_filled = True
+                except:
+                    pass
+            
+            # 方法3: 直接通过选择器查找（备用方法）
+            if not excerpt_filled:
+                for selector in excerpt_selectors:
+                    try:
+                        excerpt_input = self.page.locator(selector).first
+                        if excerpt_input.is_visible(timeout=2000):
+                            # 验证是否是摘要输入框（通过检查附近的文本）
+                            try:
+                                # 检查输入框附近是否有提示文本
+                                nearby_text = excerpt_input.evaluate("""
+                                    (el) => {
+                                        const parent = el.parentElement;
+                                        if (parent) {
+                                            return parent.textContent || '';
+                                        }
+                                        return '';
+                                    }
+                                """)
+                                if '摘要' in nearby_text or '选填' in nearby_text:
+                                    logger.info(f"✅ 找到摘要输入框: {selector}")
+                                    excerpt_input.clear()
+                                    time.sleep(0.2)
+                                    excerpt_input.fill(excerpt)
+                                    time.sleep(0.3)
+                                    excerpt_input.press('Tab')
+                                    excerpt_filled = True
+                                    break
+                            except:
+                                # 如果验证失败，尝试直接使用
+                                logger.info(f"尝试使用输入框: {selector}")
+                                excerpt_input.clear()
+                                time.sleep(0.2)
+                                excerpt_input.fill(excerpt)
+                                time.sleep(0.3)
+                                excerpt_input.press('Tab')
+                                excerpt_filled = True
+                                break
+                    except:
+                        continue
+            
+            # 方法4: 使用JavaScript查找
+            if not excerpt_filled:
+                logger.info("使用JavaScript查找摘要输入框...")
+                js_find_excerpt = f'''
+                (function(){{
+                    const hintText = "{hint_text}";
+                    const excerpt = "{excerpt.replace('"', '\\"')}";
+                    
+                    // 查找包含提示文本的元素
+                    const allElements = document.querySelectorAll('*');
+                    let hintEl = null;
+                    for (const el of allElements) {{
+                        if (el.textContent && el.textContent.includes(hintText)) {{
+                            hintEl = el;
+                            break;
+                        }}
+                    }}
+                    
+                    if (hintEl) {{
+                        // 在附近查找输入框
+                        let input = hintEl.parentElement?.querySelector('textarea, input[type="text"]');
+                        if (!input) {{
+                            // 向上查找
+                            let parent = hintEl.parentElement;
+                            for (let i = 0; i < 3 && parent; i++) {{
+                                input = parent.querySelector('textarea, input[type="text"]');
+                                if (input) break;
+                                parent = parent.parentElement;
+                            }}
+                        }}
+                        
+                        if (input) {{
+                            input.value = excerpt;
+                            input.textContent = excerpt;
+                            input.innerText = excerpt;
+                            input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                            input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            return {{success: true, value: input.value}};
+                        }}
+                    }}
+                    
+                    return {{success: false}};
+                }})();
+                '''
+                try:
+                    result = self.page.evaluate(js_find_excerpt)
+                    if result.get('success'):
+                        logger.info(f"✅ JavaScript成功设置摘要: {result.get('value')}")
+                        excerpt_filled = True
+                except Exception as e:
+                    logger.warning(f"JavaScript设置摘要失败: {e}")
+            
+            if excerpt_filled:
+                logger.info("=" * 60)
+                logger.info("✅ 摘要设置完成")
+                logger.info("=" * 60)
+                return {"ok": True, "message": "摘要设置成功"}
+            else:
+                logger.warning("⚠️ 未找到摘要输入框")
+                return {"ok": False, "error": "未找到摘要输入框"}
+            
+        except Exception as e:
+            logger.error(f"设置摘要失败: {e}")
+            return {"ok": False, "error": str(e)}
+    
     def find_publish_button(self) -> Dict[str, Any]:
         """
         查找发表按钮
@@ -2209,7 +3013,11 @@ class WeChatPublisher:
         scheduled_time: Optional[str] = None,
         scheduled_date: Optional[str] = None,
         enable_group_notify: bool = False,
-        title: Optional[str] = None
+        title: Optional[str] = None,
+        excerpt: Optional[str] = None,
+        cover_image_path: Optional[str] = None,
+        auto_set_cover: bool = True,
+        auto_set_excerpt: bool = True
     ) -> Dict[str, Any]:
         """
         发表文章
@@ -2220,6 +3028,10 @@ class WeChatPublisher:
             scheduled_date: 定时发表日期，格式 "YYYY-MM-DD" 或 "today" 或 "tomorrow"，如 "2024-12-25"。默认为 "today"
             enable_group_notify: 是否启用群发通知（默认 False）
             title: 文章标题（用于错误检查和重新设置）
+            excerpt: 摘要文本（用于在发表弹窗中设置）
+            cover_image_path: 封面图片路径
+            auto_set_cover: 是否自动设置封面（默认 True）
+            auto_set_excerpt: 是否自动设置摘要（默认 True）
         
         Returns:
             操作结果字典
@@ -2300,12 +3112,42 @@ class WeChatPublisher:
             except Exception as e:
                 logger.warning(f"保存为草稿时出错: {e}，继续执行发表流程...")
             
+            # 先设置摘要和封面（在编辑页面中，如果可能的话）
+            # 如果编辑页面没有这些字段，将在点击发表按钮后的弹窗中设置
+            if auto_set_excerpt and excerpt:
+                logger.info("=" * 60)
+                logger.info("步骤1: 在编辑页面中设置摘要...")
+                logger.info("=" * 60)
+                excerpt_result = self.set_excerpt(excerpt)
+                if not excerpt_result.get("ok"):
+                    logger.info(f"摘要未在编辑页面中设置，将在发表弹窗中设置: {excerpt_result.get('error', '未知错误')}")
+                else:
+                    logger.info("✅ 摘要在编辑页面中设置成功")
+                    time.sleep(1)
+            
+            if auto_set_cover:
+                logger.info("=" * 60)
+                logger.info("步骤2: 在编辑页面中设置封面...")
+                logger.info("=" * 60)
+                cover_result = self.set_cover_image(
+                    excerpt=excerpt or "",
+                    image_path=cover_image_path
+                )
+                if not cover_result.get("ok"):
+                    logger.info(f"封面未在编辑页面中设置，将在发表弹窗中设置: {cover_result.get('error', '未知错误')}")
+                else:
+                    logger.info("✅ 封面在编辑页面中设置成功")
+                    time.sleep(2)
+            
             # 查找发表按钮
             button_info = self.find_publish_button()
             if not button_info.get("found"):
                 return {"ok": False, "error": "未找到发表按钮"}
             
-            # 点击发表按钮
+            # 点击发表按钮（在设置摘要和封面之后）
+            logger.info("=" * 60)
+            logger.info("步骤3: 点击发表按钮（摘要和封面已设置）...")
+            logger.info("=" * 60)
             selector = button_info.get("selector")
             if selector == "text_match":
                 # 通过文本匹配点击
@@ -2497,7 +3339,63 @@ class WeChatPublisher:
             except Exception as e:
                 logger.warning(f"处理创作来源声明弹窗时出错: {e}，继续执行...")
             
-            # 如果设置了定时时间，配置定时发表
+            # 在发表弹窗中设置摘要和封面（如果之前在编辑页面中设置失败）
+            # 等待发表弹窗完全加载
+            logger.info("等待发表弹窗完全加载...")
+            time.sleep(2)
+            
+            # 检查是否需要在发表弹窗中设置摘要和封面
+            # 如果之前在编辑页面中设置失败，则在弹窗中设置
+            if auto_set_excerpt and excerpt:
+                # 检查摘要是否已设置（通过查找摘要输入框的值）
+                excerpt_already_set = False
+                try:
+                    excerpt_input = self.page.locator('textarea[placeholder*="摘要"], textarea[placeholder*="excerpt"], input[placeholder*="摘要"]').first
+                    if excerpt_input.is_visible(timeout=1000):
+                        current_value = excerpt_input.input_value()
+                        if current_value and excerpt in current_value:
+                            excerpt_already_set = True
+                            logger.info("✅ 摘要已在编辑页面中设置，跳过弹窗设置")
+                except:
+                    pass
+                
+                if not excerpt_already_set:
+                    logger.info("=" * 60)
+                    logger.info("步骤4: 在发表弹窗中设置摘要...")
+                    logger.info("=" * 60)
+                    excerpt_result = self.set_excerpt(excerpt)
+                    if excerpt_result.get("ok"):
+                        logger.info("✅ 摘要在发表弹窗中设置成功")
+                        time.sleep(1)
+                    else:
+                        logger.warning(f"⚠️ 摘要设置失败: {excerpt_result.get('error', '未知错误')}")
+            
+            if auto_set_cover:
+                # 检查封面是否已设置（通过查找封面图片）
+                cover_already_set = False
+                try:
+                    cover_img = self.page.locator('[class*="cover"] img[src*="http"], img[src*="mmbiz"]').first
+                    if cover_img.is_visible(timeout=1000):
+                        cover_already_set = True
+                        logger.info("✅ 封面已在编辑页面中设置，跳过弹窗设置")
+                except:
+                    pass
+                
+                if not cover_already_set:
+                    logger.info("=" * 60)
+                    logger.info("步骤5: 在发表弹窗中设置封面...")
+                    logger.info("=" * 60)
+                    cover_result = self.set_cover_image(
+                        excerpt=excerpt or "",
+                        image_path=cover_image_path
+                    )
+                    if cover_result.get("ok"):
+                        logger.info("✅ 封面在发表弹窗中设置成功")
+                        time.sleep(2)
+                    else:
+                        logger.warning(f"⚠️ 封面设置失败: {cover_result.get('error', '未知错误')}")
+            
+            # 摘要和封面都设置完成后，再配置定时发表（如果需要）
             if scheduled_time:
                 # 如果没有指定日期，默认为今天
                 if not scheduled_date:
@@ -2621,7 +3519,10 @@ def publish_from_markdown(
     auto_publish: bool = False,
     scheduled_time: Optional[str] = None,
     scheduled_date: Optional[str] = None,
-    enable_group_notify: bool = False
+    enable_group_notify: bool = False,
+    cover_image_path: Optional[str] = None,
+    auto_set_cover: bool = True,
+    auto_set_excerpt: bool = True
 ) -> Dict[str, Any]:
     """
     从 Markdown 文件发表到微信公众号
@@ -2636,6 +3537,9 @@ def publish_from_markdown(
         scheduled_time: 定时发表时间，格式 "HH:MM"，如 "20:30"。如果提供，会自动启用定时发表
         scheduled_date: 定时发表日期，格式 "YYYY-MM-DD" 或 "today" 或 "tomorrow"，如 "2024-12-25"。默认为 "today"
         enable_group_notify: 是否启用群发通知（默认 False）
+        cover_image_path: 封面图片路径
+        auto_set_cover: 是否自动设置封面（默认 True）
+        auto_set_excerpt: 是否自动设置摘要（默认 True）
     
     Returns:
         操作结果字典
@@ -2654,8 +3558,9 @@ def publish_from_markdown(
     parser = MarkdownParser(md_content)
     title = parser.get_front_matter("title", "")
     author = parser.get_front_matter("author", "")
+    excerpt = parser.get_front_matter("excerpt", "")
     
-    logger.info(f"提取元信息: 标题={title}, 作者={author}")
+    logger.info(f"提取元信息: 标题={title}, 作者={author}, 摘要={excerpt}")
     
     # 转换 Markdown 为 HTML（只转换正文部分）
     base_dir = str(Path(md_file).parent)
@@ -2723,6 +3628,8 @@ def publish_from_markdown(
         logger.info("✅ 步骤 4 完成: HTML 内容已插入，标题和作者已填充")
         logger.info("=" * 60)
         
+        # 注意：摘要和封面将在 publish 方法中设置（在点击发表按钮之前）
+        
         # 如果需要自动发表
         if auto_publish:
             logger.info("=" * 60)
@@ -2733,7 +3640,11 @@ def publish_from_markdown(
                 scheduled_time=scheduled_time,
                 scheduled_date=scheduled_date,
                 enable_group_notify=enable_group_notify,
-                title=title  # 传递标题用于错误检查
+                title=title,  # 传递标题用于错误检查
+                excerpt=excerpt,  # 传递摘要用于在发表弹窗中设置
+                cover_image_path=cover_image_path,
+                auto_set_cover=auto_set_cover,
+                auto_set_excerpt=auto_set_excerpt
             )
             result["publish"] = publish_result
             if publish_result.get("ok"):

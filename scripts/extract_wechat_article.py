@@ -42,7 +42,14 @@ class WeChatArticleExtractor:
         
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Referer': 'https://mp.weixin.qq.com/',
+            'Cache-Control': 'max-age=0'
         })
         
         # 初始化 OCR（延迟加载）
@@ -97,17 +104,29 @@ class WeChatArticleExtractor:
         """
         logger.info(f"正在下载文章: {url}")
         
-        # 首先尝试使用 requests 直接获取（更快，但可能缺少 JS 渲染内容）
+        # 优先使用 requests 直接获取（更快，适合可以直接打开的链接）
         try:
-            logger.info("尝试使用 requests 直接获取...")
-            response = self.session.get(url, timeout=30)
+            logger.info("使用 requests 直接获取...")
+            response = self.session.get(url, timeout=30, allow_redirects=True)
             response.raise_for_status()
+            
+            # 检查是否被重定向到验证页面
+            if 'wappoc_appmsgcaptcha' in response.url or 'poc_token' in response.url:
+                logger.warning(f"检测到URL被重定向到验证页面: {response.url}，将使用 Playwright...")
+                raise Exception("重定向到验证页面，需要使用浏览器")
+            
+            # 设置正确的编码
+            if response.encoding and 'utf' in response.encoding.lower():
+                response.encoding = 'utf-8'
+            else:
+                response.encoding = response.apparent_encoding or 'utf-8'
+            
             html = response.text
             
-            # 检查是否有验证页面
-            if '环境异常' in html or '验证' in html:
-                logger.warning("检测到验证页面，尝试使用 Playwright...")
-                raise Exception("需要验证，切换到 Playwright")
+            # 检查是否有验证页面内容
+            if '环境异常' in html or '验证' in html or 'wappoc_appmsgcaptcha' in html:
+                logger.warning("检测到验证页面内容，将使用 Playwright...")
+                raise Exception("验证页面，需要使用浏览器")
             
             # 解析 HTML 提取元数据
             soup = BeautifulSoup(html, 'html.parser')
@@ -136,6 +155,8 @@ class WeChatArticleExtractor:
         except Exception as e:
             logger.warning(f"requests 方法失败: {e}，尝试使用 Playwright...")
             
+            # 只有在 requests 失败时才使用 Playwright
+            
             # 使用 Playwright 获取完整页面（包括 JavaScript 渲染的内容）
             try:
                 from playwright.sync_api import sync_playwright
@@ -149,17 +170,29 @@ class WeChatArticleExtractor:
                     
                     try:
                         # 使用更宽松的等待条件，增加超时时间
-                        page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                        page.goto(url, wait_until='networkidle', timeout=90000)
                         # 等待页面加载和可能的验证
-                        time.sleep(5)
+                        time.sleep(8)
                         
-                        # 检查是否有验证页面
+                        # 检查是否有验证页面，如果有则等待更长时间
                         page_content = page.content()
+                        retry_count = 0
+                        while ('环境异常' in page_content or '验证' in page_content) and retry_count < 3:
+                            logger.warning(f"检测到验证页面，等待更长时间... (尝试 {retry_count + 1}/3)")
+                            time.sleep(15)
+                            page.reload(wait_until='networkidle', timeout=90000)
+                            time.sleep(8)
+                            page_content = page.content()
+                            retry_count += 1
+                        
+                        # 如果仍然有验证页面，尝试滚动页面触发加载
                         if '环境异常' in page_content or '验证' in page_content:
-                            logger.warning("检测到验证页面，尝试等待更长时间...")
-                            time.sleep(10)
-                            page.reload(wait_until='domcontentloaded', timeout=60000)
+                            logger.warning("尝试滚动页面以触发内容加载...")
+                            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                             time.sleep(5)
+                            page.evaluate("window.scrollTo(0, 0)")
+                            time.sleep(3)
+                            page_content = page.content()
                         
                         # 获取页面 HTML
                         html = page.content()
@@ -437,21 +470,49 @@ class WeChatArticleExtractor:
         
         # 提取标题
         title = None
-        title_selectors = ['#activity-name', '.rich_media_title', 'h1']
+        title_selectors = [
+            '#activity-name', 
+            '.rich_media_title', 
+            'h1',
+            'h2[id="activity-name"]',
+            '.profile_nickname + h1',
+            'meta[property="og:title"]'
+        ]
         for selector in title_selectors:
-            title_el = soup.select_one(selector)
-            if title_el:
-                title = title_el.get_text(strip=True)
-                break
+            try:
+                title_el = soup.select_one(selector)
+                if title_el:
+                    if selector.startswith('meta'):
+                        title = title_el.get('content', '').strip()
+                    else:
+                        title = title_el.get_text(strip=True)
+                    if title:
+                        break
+            except:
+                continue
         
-        # 提取正文
+        # 提取正文 - 尝试多种选择器
         content = None
-        content_selectors = ['#js_content', '.rich_media_content', 'article']
+        content_selectors = [
+            '#js_content',
+            '#js_article',
+            '.rich_media_content',
+            'article',
+            '.article-content',
+            '[id*="content"]',
+            '[class*="content"]'
+        ]
         for selector in content_selectors:
-            content_el = soup.select_one(selector)
-            if content_el:
-                content = content_el
-                break
+            try:
+                content_el = soup.select_one(selector)
+                if content_el:
+                    # 检查是否有实际内容
+                    text_preview = content_el.get_text(strip=True)[:100]
+                    if len(text_preview) > 20:  # 确保有足够的内容
+                        content = content_el
+                        break
+            except:
+                continue
         
         # 提取段落文本
         paragraphs = []
@@ -459,22 +520,139 @@ class WeChatArticleExtractor:
             # 先提取所有段落
             for p in content.find_all('p'):
                 text = p.get_text(strip=True)
-                if text and len(text) > 5:  # 过滤太短的文本
-                    paragraphs.append(text)
-            
-            # 如果没有段落，尝试提取 div 中的文本
-            if not paragraphs:
-                for div in content.find_all('div'):
-                    text = div.get_text(strip=True)
-                    # 过滤太短的文本和可能的样式/脚本内容
-                    if text and len(text) > 10 and not text.startswith('var ') and 'function' not in text:
+                # 过滤太短的文本、空白、特殊字符
+                if text and len(text) > 3 and not text.isspace():
+                    # 过滤掉明显的非内容文本
+                    if not any(skip in text for skip in ['var ', 'function', 'javascript:', 'style=', 'class=']):
                         paragraphs.append(text)
             
-            # 提取标题
+            # 如果没有段落，尝试提取 span 和 div 中的文本
+            if not paragraphs:
+                for tag in content.find_all(['span', 'div', 'section']):
+                    text = tag.get_text(strip=True)
+                    # 过滤太短的文本和可能的样式/脚本内容
+                    if (text and len(text) > 10 and 
+                        not text.startswith('var ') and 
+                        'function' not in text and
+                        not text.startswith('http') and
+                        not text.isspace()):
+                        # 检查是否是重复内容
+                        if not any(p == text for p in paragraphs):
+                            paragraphs.append(text)
+            
+            # 提取标题（h1-h6）
             for h in content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
                 text = h.get_text(strip=True)
-                if text:
-                    paragraphs.append(f"## {text}")
+                if text and len(text) > 2:
+                    # 避免重复
+                    header_text = f"## {text}"
+                    if header_text not in paragraphs:
+                        paragraphs.append(header_text)
+            
+            # 提取列表项
+            for li in content.find_all(['li', 'dt', 'dd']):
+                text = li.get_text(strip=True)
+                if text and len(text) > 5:
+                    paragraphs.append(f"- {text}")
+        
+        # 如果还是没有内容，尝试从整个页面提取
+        if not paragraphs:
+            logger.warning("未找到正文内容，尝试从整个页面提取...")
+            # 尝试提取所有可见文本
+            body = soup.find('body')
+            if body:
+                # 先尝试提取 script 标签中的 JSON 数据（微信公众号文章内容可能在 script 中）
+                scripts = body.find_all('script')
+                for script in scripts:
+                    script_text = script.string
+                    if script_text and ('msgList' in script_text or 'content' in script_text):
+                        # 尝试提取 JSON 数据
+                        try:
+                            import json
+                            import re
+                            # 查找 JSON 对象
+                            json_match = re.search(r'\{[^{}]*"content"[^{}]*\}', script_text, re.DOTALL)
+                            if json_match:
+                                # 尝试解析 JSON
+                                try:
+                                    data = json.loads(json_match.group())
+                                    if 'content' in data:
+                                        content_html = data['content']
+                                        content_soup = BeautifulSoup(content_html, 'html.parser')
+                                        for p in content_soup.find_all('p'):
+                                            text = p.get_text(strip=True)
+                                            if text and len(text) > 5:
+                                                paragraphs.append(text)
+                                except:
+                                    pass
+                        except:
+                            pass
+                
+                # 如果还是没有，尝试从 script 标签中提取 msgList 或类似数据
+                if not paragraphs:
+                    import json
+                    import re
+                    # 查找 msgList 或 msg_title 等变量
+                    for script in scripts:
+                        if script.string:
+                            script_text = script.string
+                            # 查找 msgList 变量
+                            msg_list_match = re.search(r'var\s+msgList\s*=\s*(\[.*?\]);', script_text, re.DOTALL)
+                            if msg_list_match:
+                                try:
+                                    msg_list = json.loads(msg_list_match.group(1))
+                                    if isinstance(msg_list, list) and len(msg_list) > 0:
+                                        msg = msg_list[0]
+                                        # 提取标题
+                                        if 'msg_title' in msg:
+                                            title = msg['msg_title']
+                                        # 提取内容
+                                        if 'content' in msg:
+                                            content_html = msg['content']
+                                            content_soup = BeautifulSoup(content_html, 'html.parser')
+                                            for p in content_soup.find_all('p'):
+                                                text = p.get_text(strip=True)
+                                                if text and len(text) > 5:
+                                                    paragraphs.append(text)
+                                except Exception as e:
+                                    logger.debug(f"解析 msgList 失败: {e}")
+                            
+                            # 查找其他可能的 JSON 数据
+                            json_matches = re.findall(r'\{[^{}]*"(?:title|content|msg_title|msg_content)"[^{}]*\}', script_text, re.DOTALL)
+                            for json_str in json_matches:
+                                try:
+                                    data = json.loads(json_str)
+                                    if 'content' in data or 'msg_content' in data:
+                                        content_html = data.get('content') or data.get('msg_content', '')
+                                        if content_html:
+                                            content_soup = BeautifulSoup(content_html, 'html.parser')
+                                            for p in content_soup.find_all('p'):
+                                                text = p.get_text(strip=True)
+                                                if text and len(text) > 5:
+                                                    paragraphs.append(text)
+                                except:
+                                    pass
+                
+                # 如果还是没有，提取所有文本
+                if not paragraphs:
+                    all_text = body.get_text(separator='\n', strip=True)
+                    # 按行分割，过滤空行和太短的行
+                    lines = [line.strip() for line in all_text.split('\n') 
+                            if line.strip() and len(line.strip()) > 10]
+                    # 过滤掉明显的非内容文本
+                    filtered_lines = []
+                    for line in lines:
+                        if (not line.startswith('var ') and 
+                            'function' not in line and 
+                            not line.startswith('http') and
+                            'javascript:' not in line and
+                            'style=' not in line and
+                            len(line) > 15 and
+                            any('\u4e00' <= c <= '\u9fff' for c in line)):  # 必须包含中文
+                            filtered_lines.append(line)
+                    paragraphs = filtered_lines[:200]  # 增加限制数量
+        
+        logger.info(f"提取到 {len(paragraphs)} 个段落，标题: {title}")
         
         return {
             'title': title,
