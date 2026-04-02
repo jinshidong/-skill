@@ -10,7 +10,6 @@
 import base64
 import io
 import json
-import os
 import re
 import time
 from dataclasses import dataclass
@@ -23,8 +22,28 @@ from bs4 import BeautifulSoup
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 try:
+    from md2wechat_config import (
+        DEFAULT_AUTHOR_NAME,
+        Md2WeChatConfig,
+        get_article_defaults,
+        load_md2wechat_config,
+        resolve_path_from_value,
+        resolve_publish_article_path,
+        resolve_value,
+        resolve_wechat_credentials,
+    )
     from md2wechat import MarkdownParser, RenderedArticle, WeChatHTMLConverter
 except ImportError:
+    from .md2wechat_config import (
+        DEFAULT_AUTHOR_NAME,
+        Md2WeChatConfig,
+        get_article_defaults,
+        load_md2wechat_config,
+        resolve_path_from_value,
+        resolve_publish_article_path,
+        resolve_value,
+        resolve_wechat_credentials,
+    )
     from .md2wechat import MarkdownParser, RenderedArticle, WeChatHTMLConverter
 
 
@@ -35,6 +54,8 @@ THUMB_IMAGE_MAX_BYTES = 64 * 1024
 MAX_CONTENT_BYTES = 1024 * 1024
 MAX_CONTENT_CHARS = 20000
 SAFE_DIGEST_CHARS = 54
+# Repo-relative fallback cover so the default works on other machines too.
+DEFAULT_COVER_RELATIVE_PATH = Path("examples/images/frontpage.png")
 
 
 class DraftValidationError(ValueError):
@@ -93,13 +114,18 @@ class WeChatDraftClient:
         session: Optional[requests.Session] = None,
         timeout: int = DEFAULT_TIMEOUT,
     ) -> "WeChatDraftClient":
-        appid = os.getenv("WECHAT_APPID", "").strip()
-        secret = os.getenv("WECHAT_SECRET", "").strip()
+        credentials = resolve_wechat_credentials(load_md2wechat_config())
+        if not credentials.appid or not credentials.secret:
+            raise DraftValidationError(
+                "缺少公众号凭证；请设置 WECHAT_APPID/WECHAT_SECRET，或在 ~/.config/md2wechat/config.yaml 中配置 wechat.appid / wechat.secret"
+            )
 
-        if not appid or not secret:
-            raise DraftValidationError("缺少环境变量 WECHAT_APPID 或 WECHAT_SECRET")
-
-        return cls(appid=appid, secret=secret, session=session, timeout=timeout)
+        return cls(
+            appid=credentials.appid,
+            secret=credentials.secret,
+            session=session,
+            timeout=timeout,
+        )
 
     def get_access_token(self) -> str:
         """获取稳定版 access_token"""
@@ -216,21 +242,36 @@ def prepare_draft_from_markdown(
     image_uploader: Optional[Callable[[bytes, str, str], str]] = None,
 ) -> PreparedDraft:
     """准备草稿 payload 所需的本地内容"""
-    md_path = Path(md_file).expanduser().resolve()
+    try:
+        md_path = resolve_publish_article_path(md_file)
+    except ValueError as exc:
+        raise DraftValidationError(str(exc)) from exc
     if not md_path.exists():
         raise DraftValidationError(f"Markdown 文件不存在: {md_path}")
 
+    runtime_config = load_md2wechat_config()
     md_content = md_path.read_text(encoding="utf-8")
     parser = MarkdownParser(md_content)
     base_dir = md_path.parent
+    article_defaults = get_article_defaults(runtime_config)
+    resolved_source = resolve_value(
+        source,
+        parser.front_matter.get("source", ""),
+        article_defaults.get("source", ""),
+        "",
+    )
     converter = WeChatHTMLConverter(style=style, base_dir=str(base_dir))
-    rendered = converter.render_article(str(md_path), source=source)
+    rendered = converter.render_article(
+        str(md_path),
+        source=resolved_source.value or None,
+    )
 
     metadata = _resolve_metadata(
         parser=parser,
         md_body=parser.body,
         base_dir=base_dir,
         rendered=rendered,
+        runtime_config=runtime_config,
         cover_image_path=cover_image_path,
         title=title,
         author=author,
@@ -440,6 +481,7 @@ def _resolve_metadata(
     md_body: str,
     base_dir: Path,
     rendered: RenderedArticle,
+    runtime_config: Md2WeChatConfig,
     cover_image_path: Optional[str],
     title: Optional[str],
     author: Optional[str],
@@ -447,33 +489,58 @@ def _resolve_metadata(
     content_source_url: Optional[str],
 ) -> DraftMetadata:
     fm = parser.front_matter
+    article_defaults = get_article_defaults(runtime_config)
 
-    resolved_title = (title or str(fm.get("title", "") or "").strip() or _extract_first_heading(md_body)).strip()
-    resolved_author = (author if author is not None else str(fm.get("author", "") or "")).strip()
-    resolved_digest = (
-        digest
-        if digest is not None
-        else (
+    resolved_title = resolve_value(
+        title,
+        fm.get("title", ""),
+        "",
+        _extract_first_heading(md_body),
+    ).value
+    resolved_author = resolve_value(
+        author,
+        fm.get("author", ""),
+        article_defaults.get("author", ""),
+        DEFAULT_AUTHOR_NAME,
+    ).value
+    resolved_digest = resolve_value(
+        digest,
+        (
             str(fm.get("digest", "") or "")
             or str(fm.get("excerpt", "") or "")
             or str(fm.get("summary", "") or "")
             or str(fm.get("description", "") or "")
-        )
-    ).strip()
+        ),
+        article_defaults.get("digest", ""),
+        "",
+    ).value
     resolved_digest = _normalize_digest(resolved_digest)
-    resolved_source_url = (
-        content_source_url
-        if content_source_url is not None
-        else str(fm.get("permalink", "") or "")
-    ).strip()
+    resolved_source_url = resolve_value(
+        content_source_url,
+        fm.get("permalink", ""),
+        article_defaults.get("source_url", ""),
+        "",
+    ).value
 
-    cover_value = cover_image_path or str(fm.get("cover", "") or fm.get("cover_image", "") or "").strip()
-    if not cover_value:
-        raise DraftValidationError("创建草稿必须显式指定封面图，请使用 --cover 或 front matter.cover")
-
-    cover_path = Path(cover_value).expanduser()
-    if not cover_path.is_absolute():
-        cover_path = (base_dir / cover_path).resolve()
+    resolved_cover = resolve_value(
+        cover_image_path,
+        str(fm.get("cover", "") or fm.get("cover_image", "") or ""),
+        article_defaults.get("cover", ""),
+        "",
+    )
+    if resolved_cover.source == "fallback":
+        cover_path = Path(__file__).resolve().parents[1] / DEFAULT_COVER_RELATIVE_PATH
+        if not cover_path.exists():
+            raise DraftValidationError(
+                "缺少封面图，且默认封面不存在；请使用 --cover、front matter.cover，或补齐 examples/images/frontpage.png"
+            )
+    else:
+        bases = [Path.cwd(), base_dir]
+        if resolved_cover.source == "config":
+            bases.insert(0, runtime_config.path.parent)
+        cover_path = resolve_path_from_value(resolved_cover.value, bases=bases)
+        if not cover_path.exists():
+            raise DraftValidationError(f"封面图片不存在: {cover_path}")
 
     return DraftMetadata(
         title=resolved_title,

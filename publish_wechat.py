@@ -17,6 +17,7 @@ src_path = str(Path(__file__).parent / "src")
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
 
+from md2wechat_config import resolve_publish_article_path  # type: ignore
 from md2wechat import STYLES  # type: ignore
 from wechat_draft_api import DraftValidationError, WeChatAPIError, create_draft_from_markdown  # type: ignore
 
@@ -27,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  # 创建草稿（需要 WECHAT_APPID / WECHAT_SECRET）
+  # 创建草稿（优先读 WECHAT_APPID / WECHAT_SECRET，缺失时回退到 ~/.config/md2wechat/config.yaml）
   python publish_wechat.py article.md --cover cover.jpg
 
   # 指定风格和摘要
@@ -35,6 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
 
   # 只做本地预检，不调用微信接口
   python publish_wechat.py article.md --cover cover.jpg --dry-run
+
+  # 如果 article.camera-ready.md 存在，将优先使用终稿；若未传 --cover 且 front matter 也没写 cover，将回退到 examples/images/frontpage.png
+  python publish_wechat.py article.md --dry-run
         """,
     )
 
@@ -49,7 +53,10 @@ def main() -> int:
         choices=list(STYLES.keys()),
         help="HTML 风格（默认: academic_gray）",
     )
-    parser.add_argument("--cover", help="封面图片路径（本地文件，优先级高于 front matter.cover）")
+    parser.add_argument(
+        "--cover",
+        help="封面图片路径（本地文件，优先级高于 front matter.cover；未提供时回退到 examples/images/frontpage.png）",
+    )
     parser.add_argument("--title", help="覆盖文章标题")
     parser.add_argument("--author", help="覆盖文章作者")
     parser.add_argument("--digest", help="覆盖文章摘要")
@@ -58,7 +65,11 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="仅做本地预检，不调用微信接口")
     args = parser.parse_args()
 
-    md_path = Path(args.md_file)
+    try:
+        md_path = resolve_publish_article_path(args.md_file)
+    except ValueError as exc:
+        print(f"错误: {exc}")
+        return 1
     if not md_path.exists():
         print(f"错误: Markdown 文件不存在: {md_path}")
         return 1

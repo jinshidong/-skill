@@ -1,8 +1,10 @@
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from unittest import mock
 
 from PIL import Image
 
@@ -12,6 +14,7 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+import md2wechat_config  # noqa: E402
 from wechat_draft_api import (  # noqa: E402
     DraftValidationError,
     WeChatAPIError,
@@ -93,7 +96,13 @@ class FakeSession:
 
 
 class WeChatDraftApiTests(unittest.TestCase):
-    def _create_fixture_files(self, root: Path, *, include_cover_in_frontmatter: bool = True) -> Path:
+    def _create_fixture_files(
+        self,
+        root: Path,
+        *,
+        include_cover_in_frontmatter: bool = True,
+        include_author_in_frontmatter: bool = True,
+    ) -> Path:
         cover_path = root / "cover.png"
         body_path = root / "body.png"
 
@@ -104,10 +113,11 @@ class WeChatDraftApiTests(unittest.TestCase):
             "---",
             'title: "测试文章"',
             "date: 2026-04-02",
-            'author: "作者A"',
             'excerpt: "这是摘要"',
             'permalink: "https://example.com/source"',
         ]
+        if include_author_in_frontmatter:
+            front_matter.append('author: "作者A"')
         if include_cover_in_frontmatter:
             front_matter.append('cover: "./cover.png"')
         front_matter.extend(
@@ -197,11 +207,120 @@ class WeChatDraftApiTests(unittest.TestCase):
             self.assertIsNotNone(client.created_article)
             self.assertLessEqual(len(client.created_article["digest"]), 54)
 
-    def test_missing_cover_raises_validation_error(self) -> None:
+    def test_author_falls_back_to_default_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            md_path = self._create_fixture_files(Path(tmpdir), include_cover_in_frontmatter=False)
-            with self.assertRaises(DraftValidationError):
-                create_draft_from_markdown(str(md_path), style="academic_gray", dry_run=True)
+            md_path = self._create_fixture_files(
+                Path(tmpdir),
+                include_author_in_frontmatter=False,
+            )
+            result = create_draft_from_markdown(str(md_path), style="academic_gray", dry_run=True)
+
+            article_payload = result["payload"]["articles"][0]
+            self.assertEqual(article_payload["author"], "路人甲")
+
+    def test_cover_can_fall_back_to_article_defaults_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            md_path = self._create_fixture_files(tmp_path, include_cover_in_frontmatter=False)
+            config_dir = tmp_path / "config"
+            config_dir.mkdir()
+            Image.new("RGB", (640, 360), (32, 64, 128)).save(config_dir / "default-cover.png")
+            config_path = config_dir / "config.yaml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "article_defaults:",
+                        '  cover: "./default-cover.png"',
+                        '  author: "默认作者"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(md2wechat_config, "DEFAULT_CONFIG_PATH", config_path):
+                result = create_draft_from_markdown(str(md_path), style="academic_gray", dry_run=True)
+
+            self.assertEqual(result["cover_path"], str((config_dir / "default-cover.png").resolve()))
+            self.assertEqual(result["author"], "作者A")
+
+    def test_invalid_article_default_cover_raises_validation_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            md_path = self._create_fixture_files(tmp_path, include_cover_in_frontmatter=False)
+            config_path = tmp_path / "config.yaml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "article_defaults:",
+                        '  cover: "./missing-cover.png"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(md2wechat_config, "DEFAULT_CONFIG_PATH", config_path):
+                with self.assertRaises(DraftValidationError):
+                    create_draft_from_markdown(str(md_path), style="academic_gray", dry_run=True)
+
+    def test_client_can_read_credentials_from_config_when_env_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.yaml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "wechat:",
+                        '  appid: "CONFIG_APPID"',
+                        '  secret: "CONFIG_SECRET"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(md2wechat_config, "DEFAULT_CONFIG_PATH", config_path):
+                with mock.patch.dict(os.environ, {"WECHAT_APPID": "", "WECHAT_SECRET": ""}, clear=False):
+                    client = WeChatDraftClient.from_env()
+
+            self.assertEqual(client.appid, "CONFIG_APPID")
+            self.assertEqual(client.secret, "CONFIG_SECRET")
+
+    def test_metadata_precedence_is_cli_then_front_matter_then_config_then_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            md_path = self._create_fixture_files(tmp_path)
+            cli_cover_path = tmp_path / "cli-cover.png"
+            Image.new("RGB", (640, 360), (255, 255, 0)).save(cli_cover_path)
+
+            config_path = tmp_path / "config.yaml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "article_defaults:",
+                        '  author: "配置作者"',
+                        '  digest: "配置摘要"',
+                        '  cover: "./config-cover.png"',
+                        '  source_url: "https://example.com/config-source"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            Image.new("RGB", (640, 360), (128, 0, 255)).save(tmp_path / "config-cover.png")
+
+            with mock.patch.object(md2wechat_config, "DEFAULT_CONFIG_PATH", config_path):
+                result = create_draft_from_markdown(
+                    str(md_path),
+                    style="academic_gray",
+                    author="CLI作者",
+                    digest="CLI摘要",
+                    content_source_url="https://example.com/cli-source",
+                    cover_image_path=str(cli_cover_path),
+                    dry_run=True,
+                )
+
+            article_payload = result["payload"]["articles"][0]
+            self.assertEqual(article_payload["author"], "CLI作者")
+            self.assertEqual(article_payload["digest"], "CLI摘要")
+            self.assertEqual(article_payload["content_source_url"], "https://example.com/cli-source")
+            self.assertEqual(result["cover_path"], str(cli_cover_path.resolve()))
 
 
 if __name__ == "__main__":

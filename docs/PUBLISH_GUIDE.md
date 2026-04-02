@@ -33,11 +33,53 @@
 pip install -r requirements.txt
 ```
 
-### 2. 环境变量
+### 2. 环境变量 / 配置文件
 
 ```bash
 export WECHAT_APPID=""
 export WECHAT_SECRET=""
+```
+
+如果你是通过 `npx skills add ...` 安装 skill，而不是在仓库根目录直接运行命令，推荐再配置：
+
+```bash
+export MD2WECHAT_REPO_ROOT="/absolute/path/to/MD2WeChat"
+```
+
+变量说明：
+
+- `WECHAT_APPID`：必填，公众号后台 AppID
+- `WECHAT_SECRET`：必填，公众号后台 AppSecret
+- `MD2WECHAT_REPO_ROOT`：可选，`npx` 安装 skill 时推荐设置，用于定位本地仓库
+
+`MD2WECHAT_REPO_ROOT` 也可以改为配置文件方式：
+
+```bash
+mkdir -p ~/.config/md2wechat
+echo "/absolute/path/to/MD2WeChat" > ~/.config/md2wechat/repo_root
+```
+
+公众号凭证如果没走环境变量，也可以放在 `~/.config/md2wechat/config.yaml`：
+
+```yaml
+wechat:
+  appid: wx...
+  secret: ...
+```
+
+同一个配置文件还支持长期默认元信息：
+
+```yaml
+article_defaults:
+  author: 路人甲
+  cover: /absolute/path/to/cover.png
+  digest: 默认摘要
+  source: 来源名称
+  source_url: https://example.com/post
+
+camera_ready:
+  enabled: true
+  style: viral-writer-wechat
 ```
 
 ### 3. 微信后台前置条件
@@ -63,6 +105,10 @@ python publish_wechat.py article.md --cover cover.jpg
 python publish_wechat.py article.md
 ```
 
+如果 `--cover` 和 front matter 的 `cover` 都没有提供，当前版本会先尝试 `article_defaults.cover`；若仍没有，再回退到仓库相对路径：
+
+- `examples/images/frontpage.png`
+
 ### 本地预检
 
 ```bash
@@ -86,10 +132,10 @@ python publish_wechat.py article.md \
 ## 元数据来源规则
 
 - `title`：优先 `--title`，否则用 front matter 的 `title`
-- `author`：优先 `--author`，否则用 front matter 的 `author`
-- `digest`：优先 `--digest`，否则优先 `digest`，再回退 `excerpt`
-- `content_source_url`：优先 `--source-url`，否则用 `permalink`
-- `cover`：优先 `--cover`，否则用 front matter 的 `cover`
+- `author`：优先 `--author`，否则用 front matter 的 `author`，再回退 `article_defaults.author`，最后回退 `路人甲`
+- `digest`：优先 `--digest`，否则优先 `digest` / `excerpt` / `summary` / `description`，再回退 `article_defaults.digest`
+- `content_source_url`：优先 `--source-url`，否则用 `permalink`，再回退 `article_defaults.source_url`
+- `cover`：优先 `--cover`，否则用 front matter 的 `cover`，再回退 `article_defaults.cover`
 
 ## 正文与图片处理
 
@@ -178,6 +224,21 @@ python publish_wechat.py article.md --dry-run
 
 ## 推荐验证流程
 
+### Camera-ready 终稿
+
+如果原稿还是 reviewer 风格，先运行：
+
+```bash
+python camera_ready_wechat.py article.md
+```
+
+它会生成：
+
+- `article.camera-ready.md`
+- `article.camera-ready.notes.md`
+
+之后对 `article.md` 跑 skill 脚本时，会优先选择同目录的 `article.camera-ready.md` 作为发布源。
+
 ### 第一次接入公众号
 
 1. 配置 `WECHAT_APPID` / `WECHAT_SECRET`
@@ -201,6 +262,7 @@ python publish_wechat.py examples/2026-04-02-draft-api-smoke-test.md
 
 ```bash
 ~/.agents/skills/md2wechat/scripts/validate_config.sh
+~/.agents/skills/md2wechat/scripts/camera_ready.sh article.md
 ~/.agents/skills/md2wechat/scripts/inspect.sh article.md
 ~/.agents/skills/md2wechat/scripts/dry_run.sh article.md --cover cover.jpg
 ~/.agents/skills/md2wechat/scripts/create_draft.sh article.md --cover cover.jpg
@@ -214,8 +276,10 @@ npx skills add https://github.com/jinshidong/-skill/tree/main/skill/md2wechat -g
 
 其中：
 
-- `validate_config.sh`：检查环境变量、当前公网 IP、微信 token 接口可达性
-- `inspect.sh`：检查文章元数据、封面和 readiness
+- `validate_config.sh`：检查环境变量 / config 凭证、当前公网 IP、微信 token 接口可达性
+- `camera_ready.sh`：生成 `camera-ready` 主稿和 notes 骨架
+- `inspect.sh`：检查文章元数据、封面、凭证来源和 readiness
+- `dry_run.sh` / `create_draft.sh`：需要能定位到本地仓库，因此 `npx` 安装时建议配置 `MD2WECHAT_REPO_ROOT` 或 `~/.config/md2wechat/repo_root`
 
 ## 相关文件
 

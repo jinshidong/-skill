@@ -1,17 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="__REPO_ROOT__"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/resolve_repo_root.sh"
+REPO_ROOT="$(resolve_md2wechat_repo_root)"
 PYTHON_BIN="$REPO_ROOT/.venv/bin/python"
 
-"$PYTHON_BIN" - <<'PY'
+"$PYTHON_BIN" - <<'PY' "$REPO_ROOT"
 import json
-import os
+import sys
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 
-appid = os.getenv("WECHAT_APPID", "").strip()
-secret = os.getenv("WECHAT_SECRET", "").strip()
+from pathlib import Path
+
+repo_root = Path(sys.argv[1])
+sys.path.insert(0, str(repo_root / "src"))
+
+from md2wechat_config import load_md2wechat_config, resolve_wechat_credentials
+
+runtime_config = load_md2wechat_config()
+credentials = resolve_wechat_credentials(runtime_config)
+appid = credentials.appid
+secret = credentials.secret
 
 def fetch_public_ip(url: str) -> str:
     try:
@@ -25,6 +36,8 @@ public_ip = fetch_public_ip("https://api.ipify.org") or fetch_public_ip("https:/
 result = {
     "wechat_appid_set": bool(appid),
     "wechat_secret_set": bool(secret),
+    "credential_source": credentials.source,
+    "config_path": str(runtime_config.path),
     "public_ip": public_ip,
     "wechat_token_check": "skipped",
 }
