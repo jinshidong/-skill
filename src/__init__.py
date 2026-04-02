@@ -7,7 +7,7 @@ Markdown to WeChat HTML Converter
 __version__ = "1.0.0"
 __author__ = "Mapoet"
 
-from .md2wechat import WeChatHTMLConverter
+from .md2wechat import RenderedArticle, WeChatHTMLConverter
+from .wechat_draft_api import WeChatDraftClient, create_draft_from_markdown
 
-__all__ = ['WeChatHTMLConverter']
-
+__all__ = ["WeChatHTMLConverter", "RenderedArticle", "WeChatDraftClient", "create_draft_from_markdown"]

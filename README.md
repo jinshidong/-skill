@@ -27,12 +27,13 @@
 - ✅ 支持水平分割线（`---`, `***`, `___`）
 - ✅ 支持文字颜色和加粗组合（`**文字**{color:#ff0000}`、`[文字]{color:#ff0000}`）
 - ✅ 100% 微信兼容（仅使用白名单标签）
-- ✅ **自动发表功能**（基于 Playwright）
-  - 自动登录（持久化登录态）
-  - 自动填充标题和作者（从 Markdown front matter 提取）
-  - 智能编辑器查找（基于实际 DOM 结构）
-  - 自动插入 HTML 内容
-  - 支持定时发表
+- ✅ **微信公众号草稿箱 API 发布**（默认发布链路）
+  - 使用微信官方 `stable_token`、`media/uploadimg`、`material/add_material`、`draft/add`
+  - 自动上传正文图片并替换为微信图片 URL
+  - 自动上传封面图并生成 `thumb_media_id`
+  - 支持本地预检（`--dry-run`）
+- ✅ **Playwright 浏览器发布链路**（保留为历史实现）
+  - 旧的浏览器自动化代码仍保留在 `src/wechat_publisher.py`
 
 ## 安装
 
@@ -84,6 +85,8 @@ npm install -g @mermaid-js/mermaid-cli
 ### 依赖说明
 
 - **必需**：`requests` - 用于网络请求
+- **必需**：`beautifulsoup4` - 用于重写 HTML 中的图片 URL
+- **必需**：`Pillow` - 用于正文图片和封面图片压缩、转码
 - **推荐**：`pygments` - 代码语法高亮
 - **可选**：`matplotlib`, `sympy` - 公式本地渲染
 - **外部工具**：`@mermaid-js/mermaid-cli` - Mermaid 图表转换（需通过 npm 安装）
@@ -197,24 +200,29 @@ MD2WeChat/
 - **Markdown 转换使用**：详细使用说明请参考 [docs/USAGE.md](docs/USAGE.md)
 - **自动发表功能**：详细发表指南请参考 [docs/PUBLISH_GUIDE.md](docs/PUBLISH_GUIDE.md)
 
-### 快速发表示例
+### 快速草稿示例
 
 ```bash
-# 1. 首次使用：设置登录（打开浏览器，手动登录）
-python publish_wechat.py --interactive
+# 1. 配置微信凭证
+export WECHAT_APPID="your-appid"
+export WECHAT_SECRET="your-secret"
 
-# 2. 发表文章（自动填充标题、作者和正文）
-python publish_wechat.py article.md --style academic_gray
+# 2. 创建公众号草稿
+python publish_wechat.py article.md --cover cover.jpg --style academic_gray
 
-# 3. 定时发表（使用配置文件）
-python schedule_publish.py --config publish_config.json
+# 3. 本地预检，不调用微信接口
+python publish_wechat.py article.md --cover cover.jpg --dry-run
 ```
 
-**发表功能特性**：
-- ✅ 自动从 Markdown 提取标题和作者，填充到编辑器
-- ✅ 智能查找编辑器（支持 uEditor/edui1 iframe）
-- ✅ 自动插入转换后的 HTML 内容
-- ✅ 支持多种风格模板
+**草稿功能特性**：
+- ✅ 自动从 Markdown 提取标题、作者、摘要、原文链接
+- ✅ 自动上传正文图片并替换为微信图床 URL
+- ✅ 自动上传封面图生成 `thumb_media_id`
+- ✅ 本地预检微信限制：标题、作者、摘要、封面、正文长度
+
+**说明**：
+- `publish_wechat.py` 现在默认走微信官方草稿箱 API。
+- 旧的 Playwright 浏览器自动化说明仍保留在 [docs/PUBLISH_GUIDE.md](docs/PUBLISH_GUIDE.md)，可作为历史实现参考。
 
 ## 许可证
 

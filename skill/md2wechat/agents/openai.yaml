@@ -1,0 +1,7 @@
+interface:
+  display_name: "MD2WeChat"
+  short_description: "Convert Markdown and create WeChat drafts via the local repo."
+  default_prompt: "Use $md2wechat to inspect, dry-run, or create a WeChat Official Account draft from a local Markdown file."
+
+policy:
+  allow_implicit_invocation: true

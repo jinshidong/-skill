@@ -12,7 +12,7 @@ import os
 import base64
 import mimetypes
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from urllib.parse import urlparse
 import requests
@@ -154,6 +154,20 @@ STYLES = {
 }
 
 
+@dataclass
+class RenderedArticle:
+    """渲染后的文章结果"""
+
+    title: str
+    date: str
+    tags: List[str]
+    permalink: str
+    source: str
+    body_html: str
+    html: str
+    front_matter: Dict[str, Any]
+
+
 class MarkdownParser:
     """Markdown 解析器"""
     
@@ -264,10 +278,13 @@ class CodeBlockFormatter:
         # 优先使用自定义的 InlineStyleFormatter（如果可用），否则使用标准 HtmlFormatter
         highlighted_lines = None
         if language:
+            class_not_found_exc = Exception
             try:
                 from pygments import highlight
                 from pygments.lexers import get_lexer_by_name
                 from pygments.util import ClassNotFound
+
+                class_not_found_exc = ClassNotFound
                 
                 lexer = get_lexer_by_name(language, stripall=False)
                 
@@ -311,7 +328,7 @@ class CodeBlockFormatter:
                 # 兜底：行数对不上就放弃高亮
                 if len(highlighted_lines) != len(lines):
                     highlighted_lines = None
-            except (ClassNotFound, ImportError, Exception):
+            except (ImportError, class_not_found_exc, Exception):
                 # 如果高亮失败，静默回退到纯文本
                 highlighted_lines = None
 
@@ -1586,6 +1603,52 @@ class WeChatHTMLConverter:
         # 图片计数器，用于为图片编号
         self.image_counter = 0
     
+    def render_article(self, md_file: str, source: Optional[str] = None) -> RenderedArticle:
+        """
+        渲染 Markdown 文件，并返回结构化文章结果
+
+        Args:
+            md_file: Markdown 文件路径
+            source: 来源信息（可选，如果提供则覆盖 Front Matter 中的来源）
+
+        Returns:
+            渲染后的文章结果
+        """
+        # 读取 Markdown 文件
+        with open(md_file, 'r', encoding='utf-8') as f:
+            md_content = f.read()
+
+        # 解析 Markdown
+        parser = MarkdownParser(md_content)
+
+        # 提取元信息
+        title = parser.get_front_matter("title", "")
+        date = parser.get_front_matter("date", "")
+        tags = parser.get_front_matter("tags", [])
+        if isinstance(tags, str):
+            tags = [tags]
+        permalink = parser.get_front_matter("permalink", "")
+
+        extracted_source = self._extract_article_source(tags, source)
+
+        # 重置图片计数器
+        self.image_counter = 0
+
+        # 转换 body
+        html_body = self._convert_body(parser.body)
+        html = self._generate_html(title, date, tags, html_body, extracted_source, permalink)
+
+        return RenderedArticle(
+            title=title,
+            date=date,
+            tags=tags,
+            permalink=permalink,
+            source=extracted_source,
+            body_html=html_body,
+            html=html,
+            front_matter=dict(parser.front_matter),
+        )
+
     def convert(self, md_file: str, source: Optional[str] = None) -> str:
         """
         转换 Markdown 文件为微信公众号 HTML
@@ -1597,53 +1660,23 @@ class WeChatHTMLConverter:
         Returns:
             转换后的 HTML 字符串
         """
-        # 读取 Markdown 文件
-        with open(md_file, 'r', encoding='utf-8') as f:
-            md_content = f.read()
-        
-        # 解析 Markdown
-        parser = MarkdownParser(md_content)
-        
-        # 提取元信息
-        title = parser.get_front_matter("title", "")
-        date = parser.get_front_matter("date", "")
-        tags = parser.get_front_matter("tags", [])
-        if isinstance(tags, str):
-            tags = [tags]
-        permalink = parser.get_front_matter("permalink", "")
-        
-        # 提取来源信息
-        # 优先级：参数 source > Front Matter tags 中的来源 > 默认值
-        extracted_source = None
-        
-        # 如果参数提供了 source，直接使用
+        return self.render_article(md_file, source=source).html
+
+    @staticmethod
+    def _extract_article_source(tags: List[str], source: Optional[str] = None) -> str:
+        """提取来源信息"""
         if source:
-            extracted_source = source
-        else:
-            # 从 tags 中查找来源信息
-            # 支持格式：来源:xxx、source:xxx、来源：xxx、source：xxx
-            for tag in tags:
-                if isinstance(tag, str):
-                    # 检查是否是来源标签
-                    if tag.startswith("来源:") or tag.startswith("来源："):
-                        extracted_source = tag.split(":", 1)[-1].split("：", 1)[-1].strip()
-                        break
-                    elif tag.startswith("source:") or tag.startswith("source："):
-                        extracted_source = tag.split(":", 1)[-1].split("：", 1)[-1].strip()
-                        break
-        
-        # 如果都没有，使用默认值
-        if not extracted_source:
-            extracted_source = "gnss.ac.cn"
-        
-        # 重置图片计数器
-        self.image_counter = 0
-        
-        # 转换 body
-        html_body = self._convert_body(parser.body)
-        
-        # 生成完整 HTML
-        return self._generate_html(title, date, tags, html_body, extracted_source, permalink)
+            return source
+
+        for tag in tags:
+            if not isinstance(tag, str):
+                continue
+            if tag.startswith("来源:") or tag.startswith("来源："):
+                return tag.split(":", 1)[-1].split("：", 1)[-1].strip()
+            if tag.startswith("source:") or tag.startswith("source："):
+                return tag.split(":", 1)[-1].split("：", 1)[-1].strip()
+
+        return "gnss.ac.cn"
     
     def _convert_body(self, md_body: str) -> str:
         """将 Markdown 正文转换为 HTML（按章节 H3 分块，忽略 H1，H2 使用粗横线格式）"""
@@ -3127,15 +3160,27 @@ class WeChatHTMLConverter:
             permalink: 永久链接（可选）
         """
         # 标题条
-        header_html = f'''<p style="background-color:{self.style_config.header_bg_color};color:{self.style_config.header_text_color};font-weight:bold;font-size:{self.style_config.header_font_size};line-height:1.6;padding:12px 14px;border-radius:10px 10px 0 0;margin:0;">
-  {self._escape_html(title)}
-</p>'''
+        header_html = (
+            f'<section style="margin:0;">'
+            f'<div style="background-color:{self.style_config.header_bg_color};'
+            f'color:{self.style_config.header_text_color};font-weight:bold;'
+            f'font-size:{self.style_config.header_font_size};line-height:1.6;'
+            f'padding:12px 14px;border-radius:10px 10px 0 0;margin:0;display:block;">'
+            f'{self._escape_html(title)}'
+            f'</div>'
+            f'</section>'
+        )
         
         # 标签字符串
         tags_str = " / ".join(tags) if tags else ""
         
         # 元信息
-        meta_html = f'<span style="color:{self.style_config.meta_text_color};font-size:{self.style_config.meta_font_size};">日期：{date}　标签：{tags_str}</span><br><br>'
+        meta_html = (
+            f'<div style="color:{self.style_config.meta_text_color};'
+            f'font-size:{self.style_config.meta_font_size};margin:0 0 16px 0;">'
+            f'日期：{date}　标签：{tags_str}'
+            f'</div>'
+        )
         
         # 构建文尾信息（来源 + permalink）
         footer_parts = []
@@ -3170,15 +3215,22 @@ class WeChatHTMLConverter:
         footer_html = "".join(footer_parts)
         
         # 主卡片
-        card_style = f'border:1px solid {self.style_config.card_border_color};border-top:none;border-radius:0 0 10px 10px;background-color:{self.style_config.card_bg_color};color:{self.style_config.card_text_color};line-height:1.9;padding:14px;margin:0;'
-        
-        card_html = f'''<p style="{card_style}">
-  {meta_html}
-  {body}
-  
-  {footer_html}
-</p>'''
-        
+        card_style = (
+            f'border:1px solid {self.style_config.card_border_color};'
+            f'border-top:none;border-radius:0 0 10px 10px;'
+            f'background-color:{self.style_config.card_bg_color};'
+            f'color:{self.style_config.card_text_color};line-height:1.9;'
+            f'padding:14px;margin:0;display:block;box-sizing:border-box;'
+        )
+
+        card_html = (
+            f'<section style="{card_style}">'
+            f'{meta_html}'
+            f'<div style="margin:0;">{body}</div>'
+            f'<div style="margin-top:16px;">{footer_html}</div>'
+            f'</section>'
+        )
+
         return header_html + "\n\n" + card_html
     
     @staticmethod
@@ -3226,4 +3278,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
