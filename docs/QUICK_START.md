@@ -16,6 +16,12 @@ pip install -r requirements.txt
 npm install -g @mermaid-js/mermaid-cli
 ```
 
+如果你想把这个项目作为 agent skill 安装到本机，也可以直接执行：
+
+```bash
+npx skills add https://github.com/jinshidong/-skill/tree/main/skill/md2wechat -g -y
+```
+
 ## 2. 配置微信凭证
 
 当前实现只读取环境变量：

@@ -157,6 +157,12 @@ python publish_wechat.py <article.md> [--cover cover.jpg] [--style style] [--dry
 ./scripts/install_skill.sh
 ```
 
+如果你已经把仓库推到 GitHub，也可以直接通过 `npx` 安装这个 skill：
+
+```bash
+npx skills add https://github.com/jinshidong/-skill/tree/main/skill/md2wechat -g -y
+```
+
 安装后可直接使用这些脚本：
 
 - `~/.agents/skills/md2wechat/scripts/inspect.sh`

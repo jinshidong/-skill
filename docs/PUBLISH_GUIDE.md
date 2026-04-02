@@ -206,6 +206,12 @@ python publish_wechat.py examples/2026-04-02-draft-api-smoke-test.md
 ~/.agents/skills/md2wechat/scripts/create_draft.sh article.md --cover cover.jpg
 ```
 
+如果还没有安装 skill，可以直接通过 GitHub 安装：
+
+```bash
+npx skills add https://github.com/jinshidong/-skill/tree/main/skill/md2wechat -g -y
+```
+
 其中：
 
 - `validate_config.sh`：检查环境变量、当前公网 IP、微信 token 接口可达性
