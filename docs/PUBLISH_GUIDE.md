@@ -1,470 +1,228 @@
-# 微信公众号发表指南
+# 微信公众号草稿发布指南
 
-> 当前仓库默认的 `publish_wechat.py` 已切换为微信官方草稿箱 API 方案。
-> 本文档保留的是历史上的 Playwright 浏览器自动化发布实现，适合作为旧链路参考，不再是默认发布方式。
+当前仓库默认的 `publish_wechat.py` 已经切换为微信官方草稿箱 API 方案。
 
-本文档介绍如何使用 Playwright 自动化发表微信公众号文章。
+默认链路如下：
 
-## 功能特性
+1. 获取 `stable_token`
+2. 上传正文图片到 `media/uploadimg`
+3. 上传封面图到 `material/add_material?type=thumb`
+4. 创建单篇图文草稿 `draft/add`
 
-- ✅ **自动登录**（使用持久化浏览器 profile）
-- ✅ **智能编辑器查找**（基于实际 DOM 结构，支持 uEditor/edui1）
-- ✅ **自动填充标题和作者**（从 Markdown front matter 提取）
-- ✅ **自动插入 HTML 内容**到编辑器正文
-- ✅ **支持定时发表**（多任务批量定时）
-- ✅ **支持多种风格模板**
-- ✅ **交互模式**（手动操作和调试）
+旧的 Playwright 浏览器自动化实现不再是默认方案，如需参考请查看 [Playwright.md](Playwright.md)。
 
-## 安装依赖
+## 适用范围
 
-### 1. 安装 Python 依赖
+当前版本聚焦：
+
+- 单篇标准图文草稿
+- 本地 Markdown 渲染
+- 微信官方接口上传
+
+当前不覆盖：
+
+- 多图文草稿
+- 定时发表
+- 浏览器自动登录和编辑器注入
+
+## 环境要求
+
+### 1. Python 依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. 安装 Playwright 浏览器
+### 2. 环境变量
 
 ```bash
-playwright install
+export WECHAT_APPID=""
+export WECHAT_SECRET=""
 ```
 
-这会下载 Chromium 浏览器，用于自动化操作。
+### 3. 微信后台前置条件
 
-## 快速开始
+需要确保：
 
-### 首次使用：设置登录
+- 对应公众号的 `AppID` / `AppSecret` 可用
+- 当前出口 IP 已加入微信公众平台接口白名单
 
-1. **运行发表脚本（首次会打开浏览器）**：
+如果接口返回 `40164 invalid ip`，请以微信报错里返回的 IP 为准加入白名单。
+
+## 发布命令
+
+### 基本用法
 
 ```bash
-python publish_wechat.py --interactive
+python publish_wechat.py article.md --cover cover.jpg
 ```
 
-2. **在打开的浏览器中手动登录微信公众号后台**：
-   - 访问 `https://mp.weixin.qq.com`
-   - 使用微信扫码或账号密码登录
-   - 登录成功后，关闭浏览器
-
-3. **登录态已保存**：
-   - 登录信息保存在 `./tmp_profile` 目录（默认）
-   - 后续运行会自动使用该登录态
-
-### 发表文章
-
-#### 方式一：直接发表（推荐）
+如果 Markdown 的 front matter 已经包含 `cover`，可以省略 `--cover`：
 
 ```bash
-# 基本发表（自动填充标题、作者和正文）
 python publish_wechat.py article.md
-
-# 指定风格
-python publish_wechat.py article.md --style festival
-
-# 不清空编辑器（追加内容）
-python publish_wechat.py article.md --no-clear
 ```
 
-**发表流程**：
-1. 自动打开浏览器并加载编辑器
-2. **自动填充标题**（从 Markdown front matter 的 `title` 字段提取）
-3. **自动填充作者**（从 Markdown front matter 的 `author` 字段提取）
-4. **自动插入正文内容**（Markdown 转换后的 HTML）
-5. 保持浏览器打开，您可以：
-   - 检查内容
-   - 手动调整格式
-   - **手动点击"发表"或"群发"按钮**
-
-#### 方式二：仅插入内容（需要手动发表）
+### 本地预检
 
 ```bash
-python publish_wechat.py article.md --no-clear
+python publish_wechat.py article.md --cover cover.jpg --dry-run
 ```
 
-脚本会执行相同的填充和插入操作，但不自动发表。
+`--dry-run` 不会调用微信接口，适合在真实上传前先验证文章是否满足限制。
 
-#### 方式三：定时发表
+### 覆盖元信息
 
 ```bash
-# 今天 20:30 定时发表（默认日期为今天）
 python publish_wechat.py article.md \
-    --auto-publish \
-    --scheduled-time "20:30"
-
-# 明天 20:30 定时发表
-python publish_wechat.py article.md \
-    --auto-publish \
-    --scheduled-date "tomorrow" \
-    --scheduled-time "20:30"
-
-# 指定日期发表（如 2024-12-25 20:30）
-python publish_wechat.py article.md \
-    --auto-publish \
-    --scheduled-date "2024-12-25" \
-    --scheduled-time "20:30"
-
-# 定时发表并启用群发通知
-python publish_wechat.py article.md \
-    --auto-publish \
-    --scheduled-date "tomorrow" \
-    --scheduled-time "20:30" \
-    --enable-group-notify
+  --cover cover.jpg \
+  --title "新的标题" \
+  --author "新的作者" \
+  --digest "新的摘要" \
+  --source "文章来源" \
+  --source-url "https://example.com/post"
 ```
 
-**定时发表流程**：
-1. 自动打开浏览器并加载编辑器
-2. 自动填充标题、作者和正文
-3. 自动点击"发表"按钮
-4. **自动打开"定时发表"开关**
-5. **自动选择日期**（今天、明天或指定日期）
-6. **自动设置发表时间**（如 20:30）
-7. 群发通知开关默认关闭（可通过 `--enable-group-notify` 启用）
-8. 浏览器保持打开，您可以检查设置后手动确认发表
+## 元数据来源规则
 
-**日期和时间格式**：
-- `--scheduled-date`：
-  - `today` 或 `今天` - 今天发表
-  - `tomorrow` 或 `明天` - 明天发表
-  - `YYYY-MM-DD` - 指定日期，如 `2024-12-25`
-  - 如果不指定，默认为 `today`
-- `--scheduled-time`：格式为 `HH:MM`，如 `20:30`、`09:00`
-- 支持选择七天内的时间（微信公众号限制）
+- `title`：优先 `--title`，否则用 front matter 的 `title`
+- `author`：优先 `--author`，否则用 front matter 的 `author`
+- `digest`：优先 `--digest`，否则优先 `digest`，再回退 `excerpt`
+- `content_source_url`：优先 `--source-url`，否则用 `permalink`
+- `cover`：优先 `--cover`，否则用 front matter 的 `cover`
 
-**注意事项**：
-- 建议配合 `--auto-publish` 使用，否则需要手动点击发表按钮
-- 微信公众号只支持选择七天内的时间
-- 日期选择器会自动显示"今天"、"明天"和未来几天的日期选项
+## 正文与图片处理
 
-## 定时发表
+### 正文 HTML
 
-### 使用配置文件
+Markdown 转 HTML 仍由本地 `md2wechat.py` 完成，发布阶段不会依赖远程“Markdown 转公众号 HTML”服务。
 
-创建 `publish_config.json`：
+### 正文图片
 
-```json
-{
-  "tasks": [
-    {
-      "md_file": "examples/2020-05-22-blog-post-13.md",
-      "publish_time": "2024-12-25 10:00:00",
-      "style": "academic_gray",
-      "user_data_dir": "./tmp_profile",
-      "clear_editor": true,
-      "auto_publish": false
-    },
-    {
-      "md_file": "examples/2025-11-05-md2wechat-intro.md",
-      "publish_time": "2024-12-26 14:30:00",
-      "style": "tech",
-      "user_data_dir": "./tmp_profile",
-      "clear_editor": true,
-      "auto_publish": false
-    }
-  ]
-}
-```
+正文中的图片会在发布前统一处理：
 
-运行定时发表器：
+- 本地图、远程图、公式图、Mermaid 图都会被读取
+- 自动转成微信可接受的图片格式
+- 上传到微信 `media/uploadimg`
+- HTML 中的 `<img src>` 会被替换成微信返回的 URL
+
+因此最终提交到 `draft/add` 的正文中，不应残留：
+
+- `data:image/...`
+- 本地文件路径
+- 第三方外链图片地址
+
+### 封面图
+
+封面图会被转换并压缩，然后上传到微信永久素材接口：
+
+- 接口：`material/add_material?type=thumb`
+- 返回：`thumb_media_id`
+
+这个 `thumb_media_id` 会写入草稿 payload。
+
+## 本地预检规则
+
+`--dry-run` 和真实上传前都会执行本地预检，主要包括：
+
+- 标题是否存在，长度是否超限
+- 作者长度是否超限
+- 摘要长度是否超限
+- 正文 HTML 长度是否超限
+- 封面路径是否存在
+- 环境变量是否存在
+- 正文图片是否都能成功处理
+
+建议先跑：
 
 ```bash
-python schedule_publish.py --config publish_config.json
+python publish_wechat.py article.md --dry-run
 ```
 
-### 命令行添加任务
+## 常见报错
+
+### 1. `errcode=40164 invalid ip`
+
+含义：当前出口 IP 不在白名单中。
+
+处理方式：
+
+1. 看微信报错返回的具体 IP
+2. 到微信公众平台后台加入接口白名单
+3. 重新执行命令
+
+### 2. `errcode=45004 description size out of limit`
+
+含义：摘要过长。
+
+当前实现已经支持：
+
+- 自动将摘要缩短到更保守的长度后重试一次
+
+但更推荐在文章 front matter 中直接写更短的 `excerpt` 或 `digest`。
+
+### 3. `正文 HTML 长度超过微信限制`
+
+含义：本地预检失败，正文内容过长。
+
+处理方式：
+
+- 缩短文章
+- 减少超长代码块或复杂内容
+- 先用短文做 smoke test 验证链路
+
+### 4. 草稿箱里显示 `\uXXXX`
+
+这是旧版 JSON 序列化方式造成的历史问题。  
+当前实现已经显式使用 UTF-8 和 `ensure_ascii=False` 发送请求，新草稿应直接显示中文。
+
+## 推荐验证流程
+
+### 第一次接入公众号
+
+1. 配置 `WECHAT_APPID` / `WECHAT_SECRET`
+2. 确认公众号接口 IP 白名单
+3. 用短文跑一次 `--dry-run`
+4. 用短文创建真实草稿
+5. 再迁移正式文章
+
+### 推荐短文
+
+可以直接使用仓库中的 smoke test：
 
 ```bash
-# 添加单个任务
-python schedule_publish.py \
-  --md-file article.md \
-  --publish-time "2024-12-25 10:00:00" \
-  --style academic_gray
-
-# 查看所有任务
-python schedule_publish.py --list
-
-# 运行定时器（默认检查间隔 60 秒）
-python schedule_publish.py --check-interval 30
+python publish_wechat.py examples/2026-04-02-draft-api-smoke-test.md --dry-run
+python publish_wechat.py examples/2026-04-02-draft-api-smoke-test.md
 ```
 
-## 命令行选项
+## Skill 配套脚本
 
-### publish_wechat.py
-
-```
-usage: publish_wechat.py [-h] [--style {academic_gray,festival,tech,announcement}]
-                          [--user-data-dir USER_DATA_DIR] [--headless]
-                          [--no-clear] [--auto-publish] [--scheduled-time SCHEDULED_TIME]
-                          [--scheduled-date SCHEDULED_DATE] [--enable-group-notify]
-                          [--interactive] [md_file]
-
-发表 Markdown 文章到微信公众号
-
-positional arguments:
-  md_file               Markdown 文件路径
-
-optional arguments:
-  -h, --help            显示帮助信息
-  -s, --style            HTML 风格（默认: academic_gray）
-  -d, --user-data-dir    浏览器用户数据目录（默认: ./tmp_profile）
-  --headless             使用无头模式（不显示浏览器窗口）
-  --no-clear             不清空编辑器，在现有内容后追加
-  --auto-publish         自动发表（不推荐，存在风险）
-  --scheduled-time       定时发表时间，格式 HH:MM，如 20:30
-  --scheduled-date       定时发表日期，格式 YYYY-MM-DD 或 today 或 tomorrow（默认: today）
-  --enable-group-notify  启用群发通知（默认不启用）
-  -i, --interactive      交互模式：仅打开浏览器，不插入内容
-```
-
-### schedule_publish.py
-
-```
-usage: schedule_publish.py [-h] [--config CONFIG] [--md-file MD_FILE]
-                            [--publish-time PUBLISH_TIME] [--style STYLE]
-                            [--list] [--check-interval CHECK_INTERVAL]
-                            [--auto-publish]
-
-定时发表微信公众号文章
-
-optional arguments:
-  -h, --help            显示帮助信息
-  -c, --config           配置文件路径（JSON 格式）
-  -f, --md-file          Markdown 文件路径
-  -t, --publish-time     发表时间（格式：YYYY-MM-DD HH:MM:SS）
-  -s, --style            HTML 风格
-  -l, --list             列出所有任务
-  -i, --check-interval   检查间隔（秒，默认 60）
-  --auto-publish         自动发表（不推荐）
-```
-
-## 使用示例
-
-### 示例 1：发表单篇文章
+如果你已经安装了统一 skill，可直接使用：
 
 ```bash
-# 转换并发表
-python publish_wechat.py examples/2020-05-22-blog-post-13.md --style academic_gray
+~/.agents/skills/md2wechat/scripts/validate_config.sh
+~/.agents/skills/md2wechat/scripts/inspect.sh article.md
+~/.agents/skills/md2wechat/scripts/dry_run.sh article.md --cover cover.jpg
+~/.agents/skills/md2wechat/scripts/create_draft.sh article.md --cover cover.jpg
 ```
 
-### 示例 2：定时发表多篇文章
+其中：
 
-创建 `my_publish_config.json`：
+- `validate_config.sh`：检查环境变量、当前公网 IP、微信 token 接口可达性
+- `inspect.sh`：检查文章元数据、封面和 readiness
 
-```json
-{
-  "tasks": [
-    {
-      "md_file": "articles/article1.md",
-      "publish_time": "2024-12-25 09:00:00",
-      "style": "academic_gray"
-    },
-    {
-      "md_file": "articles/article2.md",
-      "publish_time": "2024-12-25 18:00:00",
-      "style": "festival"
-    }
-  ]
-}
-```
+## 相关文件
 
-运行：
+- `publish_wechat.py`
+- `src/wechat_draft_api.py`
+- `md2wechat.py`
+- `examples/2026-04-02-draft-api-smoke-test.md`
 
-```bash
-python schedule_publish.py --config my_publish_config.json
-```
+## 历史链路说明
 
-### 示例 3：交互模式调试
+仓库里仍保留：
 
-```bash
-# 打开浏览器，手动操作
-python publish_wechat.py --interactive
-```
+- `src/wechat_publisher.py`
+- `schedule_publish.py`
 
-## 注意事项
-
-### ⚠️ 重要提示
-
-1. **登录态管理**：
-   - 首次使用需要手动登录
-   - 登录态保存在 `user_data_dir` 目录
-   - 不要删除该目录，否则需要重新登录
-
-2. **自动发表风险**：
-   - `--auto-publish` 选项会自动点击发表按钮
-   - 建议不要使用，存在误发表风险
-   - 推荐做法：插入内容后手动确认发表
-
-3. **编辑器选择器**：
-   - 微信公众号后台 DOM 结构可能变化
-   - 如果插入失败，可能需要更新选择器
-   - 可以查看 `src/wechat_publisher.py` 中的 `JS_FIND_EDITOR` 和 `JS_INSERT_AT_CURSOR`
-
-4. **定时发表**：
-   - 定时发表器需要持续运行
-   - 建议在服务器或后台运行
-   - 可以使用 `screen` 或 `tmux` 保持会话
-
-5. **合规性**：
-   - 遵守微信公众平台规则
-   - 不要批量自动化发表
-   - 确保内容经过人工审核
-
-### 故障排查
-
-#### 问题 1：找不到编辑器
-
-**症状**：日志显示 "editor found: {found: false}" 或 "编辑器未找到"
-
-**解决方案**：
-1. 检查是否已登录（使用 `--interactive` 模式验证）
-2. 检查是否在正确的编辑页面（应该在 `appmsg_edit` 页面）
-3. 脚本会自动查找以下编辑器：
-   - 标题框：`#title` 或 `textarea[name="title"]`
-   - 作者框：`#author` 或 `input[name="author"]`
-   - 正文编辑器：`edui1` iframe 或 contenteditable 元素
-4. 如果仍然找不到，请检查浏览器控制台是否有错误
-5. 可以尝试等待更长时间（脚本默认等待 15 秒）
-
-#### 问题 1.1：找到了编辑器但插入失败
-
-**症状**：日志显示找到了编辑器，但插入 HTML 失败
-
-**解决方案**：
-1. 检查 HTML 内容是否包含微信不支持的标签
-2. 检查编辑器是否完全加载（可能需要等待更长时间）
-3. 尝试使用 `--no-clear` 选项
-
-#### 问题 2：插入 HTML 失败
-
-**症状**：`insert result: {ok: false, error: ...}`
-
-**解决方案**：
-1. 检查 HTML 内容是否包含微信不支持的标签
-2. 尝试使用 `--no-clear` 选项
-3. 使用交互模式手动检查编辑器状态
-
-#### 问题 3：登录态失效
-
-**症状**：每次运行都需要重新登录
-
-**解决方案**：
-1. 检查 `user_data_dir` 目录权限
-2. 确保目录没有被删除
-3. 重新运行 `--interactive` 模式登录
-
-## 技术实现
-
-#### 架构概述
-
-```
-publish_wechat.py (命令行工具)
-    ↓
-wechat_publisher.py (核心模块)
-    ├── WeChatPublisher (浏览器控制)
-    ├── publish_from_markdown (发表流程)
-    │   ├── 提取标题和作者 (从 Markdown front matter)
-    │   └── 转换 HTML (WeChatHTMLConverter)
-    └── JavaScript 注入 (DOM 操作)
-    ↓
-md2wechat.py (Markdown 转换)
-    └── WeChatHTMLConverter (HTML 生成)
-```
-
-#### 核心流程
-
-1. **启动浏览器**：使用持久化 profile 启动 Chromium
-2. **打开编辑器**：导航到微信公众号编辑页面
-3. **检查登录**：验证登录状态
-4. **查找编辑器**：智能查找标题、作者和正文编辑器
-5. **提取元信息**：从 Markdown front matter 提取标题和作者
-6. **转换 Markdown**：调用 `WeChatHTMLConverter` 生成 HTML
-7. **填充标题和作者**：自动填充到对应的输入框
-8. **插入 HTML**：使用 JavaScript 注入到正文编辑器
-9. **发表**（可选）：查找并点击发表按钮
-
-#### JavaScript 注入
-
-使用 Playwright 的 `page.evaluate()` 在页面上下文中执行 JavaScript：
-
-- **查找编辑器**：`JS_FIND_EDITOR` - 基于实际 XPath 查找：
-  - 标题框：`#title` 或 `textarea[name="title"]`
-  - 作者框：`#author` 或 `input[name="author"]`
-  - 正文编辑器：优先查找 `edui1` iframe，其次查找 contenteditable 元素
-- **填充标题和作者**：`JS_SET_TITLE_AUTHOR` - 填充输入框并触发事件
-- **插入 HTML**：`JS_INSERT_AT_CURSOR` - 使用 Range API 插入内容（支持 iframe）
-- **Bridge 注入**：`JS_INJECT_BRIDGE` - 注入全局桥接函数
-
-#### 编辑器查找策略
-
-脚本采用多层查找策略：
-
-1. **优先查找**：`edui1` 相关的 iframe（uEditor 通常使用 iframe）
-2. **次优查找**：`edui1` 相关的 contenteditable 元素
-3. **兜底策略**：查找最大的可见 contenteditable 元素
-
-这样可以适应不同的微信公众号编辑器版本和结构。
-
-## 进阶使用
-
-### 自定义编辑器选择器
-
-如果默认选择器无法找到编辑器，可以修改 `src/wechat_publisher.py`：
-
-**标题框选择器**：
-```javascript
-// 在 JS_FIND_EDITOR 中修改
-const titleEl = document.querySelector('#title, textarea[name="title"], '自定义选择器');
-```
-
-**作者框选择器**：
-```javascript
-const authorEl = document.querySelector('#author, input[name="author"], '自定义选择器');
-```
-
-**正文编辑器选择器**：
-```javascript
-// 在 JS_INSERT_AT_CURSOR 中添加新的选择器
-const eduiSelectors = [
-    '#edui1',
-    '[id*="edui1"]',
-    '.edui-editor-body',
-    '你的自定义选择器'  // 添加自定义选择器
-];
-```
-
-### 自定义发表按钮选择器
-
-修改 `JS_FIND_PUBLISH_BUTTON` 中的选择器列表。
-
-### Markdown Front Matter 格式
-
-确保你的 Markdown 文件包含正确的 front matter：
-
-```yaml
----
-title: "文章标题"  # 会自动填充到标题框
-author: "作者名称"  # 会自动填充到作者框（可选）
-date: 2024-12-25
-tags:
-  - 标签1
-  - 标签2
----
-
-正文内容...
-```
-
-脚本会自动从 front matter 提取 `title` 和 `author` 字段并填充到编辑器。
-
-### 集成到 CI/CD
-
-```yaml
-# GitHub Actions 示例
-- name: Publish WeChat Article
-  run: |
-    python publish_wechat.py article.md --headless
-  env:
-    DISPLAY: :99  # 用于无头模式
-```
-
-## 许可证
-
-本项目采用 MIT License。
+它们属于旧的浏览器自动化方案，不再是当前默认发布链路，也不建议继续作为主流程文档入口。
