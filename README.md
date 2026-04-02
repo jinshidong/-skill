@@ -35,7 +35,7 @@ MD2WeChat 现在同时覆盖三类工作流：
 
 ## 渲染截图
 
-<img src="graph/readme-screenshot-2026-04-02-161609.png" alt="MD2WeChat 渲染截图" width="960">
+![MD2WeChat 渲染截图](./graph/readme-screenshot-2026-04-02-161609.png)
 
 ## 微信官方平台入口变更
 
