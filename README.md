@@ -1,4 +1,5 @@
 # Markdown to WeChat HTML Converter
+demo文章：https://mp.weixin.qq.com/s/8YamtCoKVxrJb8kaSW9dmg
 
 将 Markdown 转成微信公众号兼容 HTML，并通过微信官方草稿箱 API 自动创建单篇图文草稿。
 
@@ -7,55 +8,6 @@ MD2WeChat 现在同时覆盖三类工作流：
 - 本地把 Markdown 渲染成微信公众号兼容 HTML
 - 用微信官方接口创建真实草稿
 - 把 reviewer 风格原稿整理成 camera-ready 的公众号终稿
-
-## 项目能力
-
-- `md2wechat.py`：本地 Markdown -> 微信公众号兼容 HTML
-- `publish_wechat.py`：调用微信官方接口创建单篇图文草稿
-- `camera_ready_wechat.py`：生成 `.camera-ready.md` 与 `.camera-ready.notes.md`
-- `skill/md2wechat`：给 agent / vibe 使用的检查、预检、发布脚本
-
-当前默认发布链路：
-
-- `stable_token`
-- `media/uploadimg`
-- `material/add_material?type=thumb`
-- `draft/add`
-
-项目已经支持：
-
-- 多种主题风格：`academic_gray`、`festival`、`tech`、`announcement`
-- 正文图片自动上传到微信并替换成微信图片 URL
-- 封面图自动上传为 `thumb` 永久素材并生成 `thumb_media_id`
-- 本地预检：标题、作者、摘要、封面、正文长度、图片可上传性
-- UTF-8 中文内容直传，避免草稿箱出现 `\uXXXX` 字面量
-- `45004 description size out of limit` 自动缩短摘要后重试
-- camera-ready 终稿优先发布
-- 微信凭证支持 `env -> ~/.config/md2wechat/config.yaml` 回退
-
-## 渲染截图
-
-![MD2WeChat 渲染截图](./graph/readme-screenshot-2026-04-02-161609.png)
-
-## 微信官方平台入口变更
-
-微信公众号 / 服务号的 `开发接口管理` 已迁移到微信开发者平台。官方说明见：
-
-- [「开发接口管理」模块升级说明](https://developers.weixin.qq.com/doc/subscription/guide/dev/migration.html)
-
-对 MD2WeChat 最相关的变化可以直接记成这几条：
-
-- 旧入口 `微信公众平台 -> 设置与开发 -> 开发接口管理`，现在迁到 `微信开发者平台 -> 我的业务 -> 公众号/服务号`
-- `AppID` 可在 `基础信息` 查看
-- `AppSecret` 和 `API IP 白名单` 在 `基础信息 -> 开发密钥`
-- `服务器配置`、`JS 接口安全域名`、`消息推送` 在 `基础信息 -> 域名与消息推送配置`
-- 如果接口调用 IP 没加入白名单，微信会返回 `40164`
-- 只有管理员或开发者能在开发者平台看到这些信息，单纯“运营者”不行
-- 官方文档明确提示平台不会再次展示已生成的 `AppSecret`，重置后要自行妥善保存
-
-如果你在 README 之外还想补排障说明，最值得提醒用户的一句就是：
-
-> 接口能不能调通，先看 `AppSecret` 是否已启用，再看出口 IP 是否已加入 `API IP 白名单`。
 
 ## 快速安装
 
@@ -152,6 +104,46 @@ camera_ready:
 - 封面优先读 `article_defaults.cover`
 - 如果仍未配置封面，则回退到 `examples/images/frontpage.png`
 
+## 项目能力
+
+- `md2wechat.py`：本地 Markdown -> 微信公众号兼容 HTML
+- `publish_wechat.py`：调用微信官方接口创建单篇图文草稿
+- `camera_ready_wechat.py`：生成 `.camera-ready.md` 与 `.camera-ready.notes.md`
+- `skill/md2wechat`：给 agent / vibe 使用的检查、预检、发布脚本
+
+当前默认发布链路：
+
+- `stable_token`
+- `media/uploadimg`
+- `material/add_material?type=thumb`
+- `draft/add`
+
+项目已经支持：
+
+- 多种主题风格：`academic_gray`、`festival`、`tech`、`announcement`
+- 正文图片自动上传到微信并替换成微信图片 URL
+- 封面图自动上传为 `thumb` 永久素材并生成 `thumb_media_id`
+- 本地预检：标题、作者、摘要、封面、正文长度、图片可上传性
+- UTF-8 中文内容直传，避免草稿箱出现 `\uXXXX` 字面量
+- `45004 description size out of limit` 自动缩短摘要后重试
+- camera-ready 终稿优先发布
+- 微信凭证支持 `env -> ~/.config/md2wechat/config.yaml` 回退
+
+## 微信官方平台入口变更
+
+微信公众号 / 服务号的 `开发接口管理` 已迁移到微信开发者平台。官方说明见：
+
+- [「开发接口管理」模块升级说明](https://developers.weixin.qq.com/doc/subscription/guide/dev/migration.html)
+
+对 MD2WeChat 最相关的变化可以直接记成这几条：
+
+- 旧入口 `微信公众平台 -> 设置与开发 -> 开发接口管理`，现在迁到 `微信开发者平台 -> 我的业务 -> 公众号/服务号`
+- `AppID` 可在 `基础信息` 查看
+- `AppSecret` 和 `API IP 白名单` 在 `基础信息 -> 开发密钥`
+- `服务器配置`、`JS 接口安全域名`、`消息推送` 在 `基础信息 -> 域名与消息推送配置`
+- 如果接口调用 IP 没加入白名单，微信会返回 `40164`
+- 官方文档明确提示平台不会再次展示已生成的 `AppSecret`，重置后要自行妥善保存接口能不能调通，先看 `AppSecret` 是否已启用，再看出口 IP 是否已加入 `API IP 白名单`。
+
 ## Markdown 元信息格式
 
 MD2WeChat 使用 YAML Front Matter 定义文章元信息。
@@ -181,7 +173,7 @@ tags:
 
 - [docs/MARKDOWN_FORMAT.md](docs/MARKDOWN_FORMAT.md)
 
-## 快速开始
+## 脚本地图
 
 ### 1. 本地转换 HTML
 
@@ -314,3 +306,9 @@ python publish_wechat.py <article.md> [--cover cover.jpg] [--style style] [--dry
 ## 许可证
 
 MIT License
+## 鸣谢
+https://github.com/nashsu/Viral_Writer_Skill/tree/main
+
+https://github.com/geekjourneyx/md2wechat-skill
+
+https://github.com/Mapoet/MD2WeChat

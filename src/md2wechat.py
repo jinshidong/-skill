@@ -240,6 +240,19 @@ class MarkdownParser:
         """获取 front matter 值"""
         return self.front_matter.get(key, default)
 
+    def get_title(self) -> str:
+        """获取文章标题，优先 front matter，其次正文首个 H1。"""
+        title = self.get_front_matter("title", "")
+        if isinstance(title, str) and title.strip():
+            return title.strip()
+
+        for line in self.body.splitlines():
+            match = re.match(r"^\s{0,3}#\s+(.+?)\s*#*\s*$", line)
+            if match:
+                return match.group(1).strip()
+
+        return ""
+
 
 class CodeBlockFormatter:
     """代码块格式化器 - 使用 <br> + &nbsp; 方法保留缩进，支持语法高亮"""
@@ -1622,7 +1635,7 @@ class WeChatHTMLConverter:
         parser = MarkdownParser(md_content)
 
         # 提取元信息
-        title = parser.get_front_matter("title", "")
+        title = parser.get_title()
         date = parser.get_front_matter("date", "")
         tags = parser.get_front_matter("tags", [])
         if isinstance(tags, str):
@@ -3172,19 +3185,33 @@ class WeChatHTMLConverter:
         )
         
         # 标签字符串
-        tags_str = " / ".join(tags) if tags else ""
-        
+        tag_texts = [str(tag).strip() for tag in tags if str(tag).strip()]
+        tags_str = " / ".join(self._escape_html(tag) for tag in tag_texts)
+
         # 元信息
-        meta_html = (
-            f'<div style="color:{self.style_config.meta_text_color};'
-            f'font-size:{self.style_config.meta_font_size};margin:0 0 16px 0;">'
-            f'日期：{date}　标签：{tags_str}'
-            f'</div>'
-        )
+        meta_parts = []
+        if str(date).strip():
+            meta_parts.append(f"日期：{self._escape_html(str(date).strip())}")
+        if tags_str:
+            meta_parts.append(f"标签：{tags_str}")
+
+        meta_html = ""
+        if meta_parts:
+            meta_html = (
+                f'<div style="color:{self.style_config.meta_text_color};'
+                f'font-size:{self.style_config.meta_font_size};margin:0 0 16px 0;">'
+                f'{"　".join(meta_parts)}'
+                f'</div>'
+            )
         
         # 构建文尾信息（来源 + permalink）
         footer_parts = []
-        footer_parts.append(f'<span style="color:{self.style_config.source_text_color};font-size:{self.style_config.source_font_size};">来源：{self._escape_html(source)}《{self._escape_html(title)}》</span>')
+        footer_text = f"来源：{self._escape_html(source)}"
+        if title.strip():
+            footer_text += f"《{self._escape_html(title)}》"
+        footer_parts.append(
+            f'<span style="color:{self.style_config.source_text_color};font-size:{self.style_config.source_font_size};">{footer_text}</span>'
+        )
         
         # 如果有 permalink，添加链接
         if permalink:

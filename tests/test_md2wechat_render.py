@@ -49,6 +49,82 @@ class WeChatHTMLRenderTests(unittest.TestCase):
             self.assertNotIn('<p style="border:1px solid', rendered.html)
             self.assertIn("data:image", rendered.html)
 
+    def test_render_article_falls_back_to_first_h1_for_title(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            md_path = tmp_path / "article.md"
+            md_path.write_text(
+                "\n".join(
+                    [
+                        "---",
+                        "date: 2026-04-02",
+                        "tags:",
+                        "  - 测试",
+                        "---",
+                        "",
+                        "# 正文标题",
+                        "",
+                        "正文内容。",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            converter = WeChatHTMLConverter(style="academic_gray", base_dir=str(tmp_path))
+            rendered = converter.render_article(str(md_path))
+
+            self.assertEqual(rendered.title, "正文标题")
+            self.assertIn("来源：gnss.ac.cn《正文标题》", rendered.html)
+
+    def test_render_article_omits_empty_source_title_brackets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            md_path = tmp_path / "article.md"
+            md_path.write_text(
+                "\n".join(
+                    [
+                        "---",
+                        "date: 2026-04-02",
+                        "tags:",
+                        "  - 测试",
+                        "---",
+                        "",
+                        "正文内容。",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            converter = WeChatHTMLConverter(style="academic_gray", base_dir=str(tmp_path))
+            rendered = converter.render_article(str(md_path))
+
+            self.assertEqual(rendered.title, "")
+            self.assertIn("来源：gnss.ac.cn", rendered.html)
+            self.assertNotIn("来源：gnss.ac.cn《》", rendered.html)
+
+    def test_render_article_omits_empty_meta_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            md_path = tmp_path / "article.md"
+            md_path.write_text(
+                "\n".join(
+                    [
+                        "---",
+                        "---",
+                        "",
+                        "正文内容。",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            converter = WeChatHTMLConverter(style="academic_gray", base_dir=str(tmp_path))
+            rendered = converter.render_article(str(md_path))
+
+            self.assertNotIn("日期：", rendered.html)
+            self.assertNotIn("标签：", rendered.html)
+            self.assertIn("来源：gnss.ac.cn", rendered.html)
+
 
 if __name__ == "__main__":
     unittest.main()
