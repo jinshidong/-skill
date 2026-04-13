@@ -49,9 +49,9 @@ def main() -> int:
     parser.add_argument(
         "--style",
         "-s",
-        default="academic_gray",
+        default=None,
         choices=list(STYLES.keys()),
-        help="HTML 风格（默认: academic_gray）",
+        help="HTML 风格（默认读取 camera_ready.style）",
     )
     parser.add_argument(
         "--cover",

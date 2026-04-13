@@ -129,6 +129,87 @@ camera_ready:
 - camera-ready 终稿优先发布
 - 微信凭证支持 `env -> ~/.config/md2wechat/config.yaml` 回退
 
+## 多公众号池后台
+
+如果你要让 OpenClaw / Telegram 直接把本机 Markdown 推到不同公众号草稿箱，现在可以启动内置的多账号后台：
+
+```bash
+python multi_account_service.py
+```
+
+默认监听：
+
+- `0.0.0.0:1024`
+- SQLite：`data/md2wechat_multiuser.sqlite`
+
+管理台页面：
+
+- `http://127.0.0.1:1024/accounts`：公众号账号 CRUD
+- `http://127.0.0.1:1024/jobs`：发布历史、失败原因、手动重试
+
+关键约束：
+
+- 不做人登录，不做权限分层
+- `wechat_appid` / `wechat_app_secret` 明文保存到 SQLite
+- 顶部固定显示风险警告
+- CLI 发布链路保持不变，仍然使用 `env -> ~/.config/md2wechat/config.yaml`
+- 服务侧直接从数据库读取账号池凭证，再构造 `WeChatDraftClient`
+
+账号表字段：
+
+- `alias`
+- `wechat_appid`
+- `wechat_app_secret`
+- `public_name`
+- `description`
+- `enabled`
+
+任务表字段：
+
+- `account_alias`
+- `article_path`
+- `source`
+- `origin_chat_id`
+- `origin_message_id`
+- `request_text`
+- `status`
+- `title`
+- `media_id`
+- `thumb_media_id`
+- `error_message`
+
+OpenClaw 提交接口：
+
+```bash
+curl -X POST http://127.0.0.1:1024/api/drafts \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "account_alias": "tech_daily",
+    "article_path": "/absolute/path/to/article.md",
+    "source": "openclaw.telegram",
+    "origin_chat_id": "123456",
+    "origin_message_id": "789",
+    "request_text": "生成公众号稿：公众号=tech_daily 主题=...",
+    "style": "tech",
+    "author": "Team MD2WeChat",
+    "digest": "一段摘要",
+    "source_url": "https://example.com/post"
+  }'
+```
+
+返回结果包含：
+
+- `ok`
+- `job_id`
+- `status`
+- `account_alias`
+- `title`
+- `media_id`
+- `thumb_media_id`
+- `error`
+
+当 `account_alias` 缺失、账号不存在或账号被禁用时，接口会返回当前可投递的 alias 列表，方便 TG 侧直接提示用户。
+
 ## 微信官方平台入口变更
 
 微信公众号 / 服务号的 `开发接口管理` 已迁移到微信开发者平台。官方说明见：

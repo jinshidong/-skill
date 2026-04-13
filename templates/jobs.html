@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="grid">
+    <article class="panel">
+      <h2>最近任务概览</h2>
+      <div class="stats">
+        <div class="stat">
+          最近任务
+          <strong>{{ jobs|length }}</strong>
+        </div>
+        <div class="stat">
+          成功
+          <strong>{{ counters.success }}</strong>
+        </div>
+        <div class="stat">
+          失败
+          <strong>{{ counters.failed }}</strong>
+        </div>
+        <div class="stat">
+          处理中
+          <strong>{{ counters.processing }}</strong>
+        </div>
+      </div>
+      <p class="meta" style="margin-top: 16px;">手动重试会立即再次推送微信草稿箱，不经过审核队列。</p>
+    </article>
+
+    <article class="panel">
+      <h2>投递历史</h2>
+      {% if jobs %}
+        <div class="job-list">
+          {% for job in jobs %}
+            <section class="job-card">
+              <div class="job-head">
+                <div>
+                  <h3>#{{ job.id }} · {{ job.title or "未解析标题" }}</h3>
+                  <p class="muted">账号 {{ job.account_alias }} · 来源 {{ job.source }}</p>
+                </div>
+                <span class="pill {{ job.status }}">{{ job.status }}</span>
+              </div>
+              <div class="meta-list">
+                <div>文章路径：<code class="inline">{{ job.article_path }}</code></div>
+                <div>创建时间：{{ job.created_at }}{% if job.finished_at %} ｜ 完成时间：{{ job.finished_at }}{% endif %}</div>
+                {% if job.origin_chat_id or job.origin_message_id %}
+                  <div>来源消息：chat_id={{ job.origin_chat_id or "-" }} ｜ message_id={{ job.origin_message_id or "-" }}</div>
+                {% endif %}
+                {% if job.display_request_text %}
+                  <div>原始请求：{{ job.display_request_text }}</div>
+                {% endif %}
+                {% if job.display_overrides %}
+                  <div>覆盖项：{{ job.display_overrides }}</div>
+                {% endif %}
+                {% if job.media_id or job.thumb_media_id %}
+                  <div>结果：media_id={{ job.media_id or "-" }} ｜ thumb_media_id={{ job.thumb_media_id or "-" }}</div>
+                {% endif %}
+                {% if job.error_message %}
+                  <div>失败原因：{{ job.error_message }}</div>
+                {% endif %}
+              </div>
+              <form method="post" action="{{ url_for('retry_job', job_id=job.id) }}">
+                <div class="actions">
+                  <button type="submit" class="secondary" {% if not job.retry_allowed %}disabled{% endif %}>手动重试</button>
+                  <span class="muted">{{ job.retry_hint }}</span>
+                </div>
+              </form>
+            </section>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty">还没有任何投递记录。OpenClaw 成功调用 `POST /api/drafts` 后，历史会出现在这里。</div>
+      {% endif %}
+    </article>
+  </section>
+{% endblock %}

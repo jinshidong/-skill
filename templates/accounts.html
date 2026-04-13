@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="grid">
+    <article class="panel">
+      <h2>新增公众号账号</h2>
+      <p class="meta">数据库路径：<code class="inline">{{ database_path }}</code></p>
+      <form method="post" action="{{ url_for('accounts_page_create') }}">
+        <div class="field-grid">
+          <label>
+            alias
+            <input type="text" name="alias" placeholder="tech_daily" required>
+          </label>
+          <label>
+            公众号名称
+            <input type="text" name="public_name" placeholder="技术日报">
+          </label>
+          <label>
+            WeChat AppID
+            <input type="text" name="wechat_appid" placeholder="wx123..." required>
+          </label>
+          <label>
+            WeChat AppSecret
+            <input type="text" name="wechat_app_secret" placeholder="明文保存" required>
+          </label>
+        </div>
+        <label style="margin-top: 14px;">
+          描述
+          <textarea name="description" placeholder="例如：AI / 编程 / 技术周刊"></textarea>
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" name="enabled" value="true" checked>
+          启用该账号，允许 OpenClaw / TG 立即投递
+        </label>
+        <div class="actions">
+          <button type="submit" class="primary">创建账号</button>
+        </div>
+      </form>
+    </article>
+
+    <article class="panel">
+      <h2>现有账号</h2>
+      <p class="meta">`alias` 必须唯一；禁用后的账号仍保留历史记录，但不会再接受投递。</p>
+      {% if accounts %}
+        {% for account in accounts %}
+          <div class="account-card">
+            <form method="post" action="{{ url_for('accounts_page_update', account_id=account.id) }}">
+              <div class="field-grid">
+                <label>
+                  alias
+                  <input type="text" name="alias" value="{{ account.alias }}" required>
+                </label>
+                <label>
+                  公众号名称
+                  <input type="text" name="public_name" value="{{ account.public_name }}">
+                </label>
+                <label>
+                  WeChat AppID
+                  <input type="text" name="wechat_appid" value="{{ account.wechat_appid }}" required>
+                </label>
+                <label>
+                  WeChat AppSecret
+                  <input type="text" name="wechat_app_secret" value="{{ account.wechat_app_secret }}" required>
+                </label>
+              </div>
+              <label style="margin-top: 14px;">
+                描述
+                <textarea name="description">{{ account.description }}</textarea>
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" name="enabled" value="true" {% if account.enabled %}checked{% endif %}>
+                当前{% if account.enabled %}已启用{% else %}已禁用{% endif %}
+              </label>
+              <p class="meta">创建于 {{ account.created_at }}，最后更新 {{ account.updated_at }}</p>
+              <div class="actions">
+                <button type="submit" class="primary">保存修改</button>
+              </div>
+            </form>
+            <form method="post" action="{{ url_for('accounts_page_delete', account_id=account.id) }}">
+              <div class="actions">
+                <button type="submit" class="danger">删除账号</button>
+              </div>
+            </form>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty">还没有配置任何公众号账号，先新增一个 alias 再让 OpenClaw 调用 `/api/drafts`。</div>
+      {% endif %}
+    </article>
+  </section>
+{% endblock %}

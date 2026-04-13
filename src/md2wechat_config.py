@@ -93,6 +93,11 @@ def get_camera_ready_config(config: Optional[Md2WeChatConfig] = None) -> Dict[st
     }
 
 
+def get_default_render_style(config: Optional[Md2WeChatConfig] = None) -> str:
+    runtime_config = config or load_md2wechat_config()
+    return _normalize_string(get_camera_ready_config(runtime_config).get("style")) or DEFAULT_CAMERA_READY_STYLE
+
+
 def resolve_wechat_credentials(config: Optional[Md2WeChatConfig] = None) -> ResolvedCredentials:
     env_appid = _normalize_string(os.getenv("WECHAT_APPID"))
     env_secret = _normalize_string(os.getenv("WECHAT_SECRET"))

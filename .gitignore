@@ -50,6 +50,7 @@ htmlcov/
 # Output files
 *.html
 !examples/*.html
+!templates/*.html
 
 # Large files (exceed GitHub 100MB limit)
 *.zip
@@ -58,6 +59,10 @@ htmlcov/
 *.tmp
 *.log
 *.bak
+
+# Runtime database
+data/*.sqlite
+!data/.gitkeep
 
 # Mermaid CLI output (if generated)
 *.png

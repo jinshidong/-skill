@@ -149,6 +149,28 @@ class WeChatDraftApiTests(unittest.TestCase):
             self.assertEqual(article_payload["thumb_media_id"], "DRY_RUN_THUMB_MEDIA_ID")
             self.assertNotIn("data:image", article_payload["content"])
             self.assertIn("https://mmbiz.qpic.cn/mock/md2wechat/draft_image_1", article_payload["content"])
+            self.assertNotIn("<section", article_payload["content"])
+
+    def test_footer_and_closing_sections_stay_at_article_end(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            md_path = self._create_fixture_files(Path(tmpdir))
+            result = create_draft_from_markdown(str(md_path), dry_run=True)
+
+            content = result["payload"]["articles"][0]["content"]
+            footer_index = content.find("来源：")
+            focus_index = content.find("互动提示")
+            reader_index = content.find("读者征稿")
+            reader_title_index = content.find("读者来稿")
+
+            self.assertGreaterEqual(footer_index, 0)
+            self.assertGreater(focus_index, footer_index)
+            self.assertGreater(reader_index, focus_index)
+            self.assertGreater(reader_title_index, reader_index)
+            self.assertNotIn("<section", content)
+            self.assertEqual(content.rfind("来源："), footer_index)
+            self.assertEqual(content.rfind("互动提示"), focus_index)
+            self.assertEqual(content.rfind("读者征稿"), reader_index)
+            self.assertEqual(content.rfind("读者来稿"), reader_title_index)
 
     def test_create_draft_with_mock_client(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -242,6 +264,39 @@ class WeChatDraftApiTests(unittest.TestCase):
 
             self.assertEqual(result["cover_path"], str((config_dir / "default-cover.png").resolve()))
             self.assertEqual(result["author"], "作者A")
+
+    def test_default_style_follows_config_when_style_not_provided(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            md_path = self._create_fixture_files(tmp_path)
+            config_path = tmp_path / "config.yaml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "camera_ready:",
+                        '  style: "tech"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(md2wechat_config, "DEFAULT_CONFIG_PATH", config_path):
+                result = create_draft_from_markdown(str(md_path), dry_run=True)
+
+            article_payload = result["payload"]["articles"][0]
+            self.assertIn("background-color:#E3F2FD", article_payload["content"])
+            self.assertIn("color:#0D47A1", article_payload["content"])
+
+    def test_documented_viral_style_alias_is_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            md_path = self._create_fixture_files(Path(tmpdir))
+            result = create_draft_from_markdown(
+                str(md_path),
+                style="viral-writer-wechat",
+                dry_run=True,
+            )
+
+            self.assertTrue(result["ok"])
 
     def test_invalid_article_default_cover_raises_validation_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -26,6 +26,7 @@ try:
         DEFAULT_AUTHOR_NAME,
         Md2WeChatConfig,
         get_article_defaults,
+        get_default_render_style,
         load_md2wechat_config,
         resolve_path_from_value,
         resolve_publish_article_path,
@@ -38,6 +39,7 @@ except ImportError:
         DEFAULT_AUTHOR_NAME,
         Md2WeChatConfig,
         get_article_defaults,
+        get_default_render_style,
         load_md2wechat_config,
         resolve_path_from_value,
         resolve_publish_article_path,
@@ -232,7 +234,7 @@ class WeChatDraftClient:
 def prepare_draft_from_markdown(
     md_file: str,
     *,
-    style: str = "academic_gray",
+    style: Optional[str] = None,
     cover_image_path: Optional[str] = None,
     title: Optional[str] = None,
     author: Optional[str] = None,
@@ -260,7 +262,8 @@ def prepare_draft_from_markdown(
         article_defaults.get("source", ""),
         "",
     )
-    converter = WeChatHTMLConverter(style=style, base_dir=str(base_dir))
+    resolved_style = (style or "").strip() or get_default_render_style(runtime_config)
+    converter = WeChatHTMLConverter(style=resolved_style, base_dir=str(base_dir))
     rendered = converter.render_article(
         str(md_path),
         source=resolved_source.value or None,
@@ -304,7 +307,7 @@ def prepare_draft_from_markdown(
 def create_draft_from_markdown(
     md_file: str,
     *,
-    style: str = "academic_gray",
+    style: Optional[str] = None,
     cover_image_path: Optional[str] = None,
     title: Optional[str] = None,
     author: Optional[str] = None,

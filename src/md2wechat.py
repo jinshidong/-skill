@@ -13,7 +13,7 @@ import base64
 import mimetypes
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from urllib.parse import urlparse
 import requests
 
@@ -25,32 +25,34 @@ class StyleConfig:
     # 标题条样式
     header_bg_color: str = "#3C3C3C"
     header_text_color: str = "#FFFFFF"
-    header_font_size: str = "20px"
+    header_font_size: str = "22px"
     # 主卡片样式
-    card_bg_color: str = "#FFFFFF"
+    card_bg_color: str = "#F7F1E3"
     card_border_color: str = "#D9D9D9"
     card_text_color: str = "#333333"
+    body_font_size: str = "17px"
+    bold_text_color: str = "#1D4ED8"
     # H2/H3 卡片样式（用于包裹H2/H3标题后的内容）
-    h2_h3_card_bg_color: str = "rgba(250, 250, 250, 0.4)"  # 支持rgba格式
+    h2_h3_card_bg_color: str = "rgba(247, 241, 227, 0.72)"  # 支持rgba格式
     h2_h3_card_border_color: str = "#E8E8E8"
     # H2 标题样式（粗横线中间为标题）
     h2_title_line_color: str = "#333333"
     h2_title_text_color: str = "#333333"
-    h2_title_font_size: str = "18px"
+    h2_title_font_size: str = "20px"
     # H3 标题样式（卡片式）
     h3_title_bg_color: str = "#F5F5F5"
     h3_title_border_color: str = "#3C3C3C"
     h3_title_text_color: str = "#333333"
-    h3_title_font_size: str = "16px"
+    h3_title_font_size: str = "17px"
     # 代码块样式
     code_bg_color: str = "#F4F4F4"
     code_border_color: str = "#E0E0E0"
     # 元信息样式
     meta_text_color: str = "#888888"
-    meta_font_size: str = "12px"
+    meta_font_size: str = "13px"
     # 来源样式
     source_text_color: str = "#999999"
-    source_font_size: str = "12px"
+    source_font_size: str = "13px"
 
 
 # 预定义风格
@@ -59,99 +61,110 @@ STYLES = {
         name="学术灰风格",
         header_bg_color="#3C3C3C",
         header_text_color="#FFFFFF",
-        header_font_size="20px",
-        card_bg_color="#FFFFFF",
+        header_font_size="22px",
+        card_bg_color="#F7F1E3",
         card_border_color="#D9D9D9",
         card_text_color="#333333",
-        h2_h3_card_bg_color="rgba(250, 250, 250, 0.4)",
+        body_font_size="17px",
+        bold_text_color="#1D4ED8",
+        h2_h3_card_bg_color="rgba(247, 241, 227, 0.72)",
         h2_h3_card_border_color="#E8E8E8",
         h2_title_line_color="#333333",
         h2_title_text_color="#333333",
-        h2_title_font_size="18px",
+        h2_title_font_size="20px",
         h3_title_bg_color="#F5F5F5",
         h3_title_border_color="#3C3C3C",
         h3_title_text_color="#333333",
-        h3_title_font_size="16px",
+        h3_title_font_size="17px",
         code_bg_color="#F4F4F4",
         code_border_color="#E0E0E0",
         meta_text_color="#888888",
-        meta_font_size="12px",
+        meta_font_size="13px",
         source_text_color="#999999",
-        source_font_size="12px",
+        source_font_size="13px",
     ),
     "festival": StyleConfig(
         name="节日快乐色彩系",
         header_bg_color="#FF6B6B",  # 温暖的红色
         header_text_color="#FFFFFF",
-        header_font_size="20px",
+        header_font_size="22px",
         card_bg_color="#FFF8E1",  # 温暖的米白色
         card_border_color="#FFB74D",  # 金色边框
         card_text_color="#5D4037",  # 深棕色文字
+        body_font_size="17px",
+        bold_text_color="#1D4ED8",
         h2_h3_card_bg_color="rgba(255, 235, 59, 0.3)",  # 淡金色背景
         h2_h3_card_border_color="#FFB74D",  # 金色边框
         h2_title_line_color="#FF6B6B",  # 红色横线
         h2_title_text_color="#D32F2F",  # 深红色标题
-        h2_title_font_size="18px",
+        h2_title_font_size="20px",
         h3_title_bg_color="#FFE082",  # 淡金色背景
         h3_title_border_color="#FF6B6B",  # 红色左边框
         h3_title_text_color="#D32F2F",  # 深红色文字
-        h3_title_font_size="16px",
+        h3_title_font_size="17px",
         code_bg_color="#FFF3E0",  # 温暖的橙色背景
         code_border_color="#FFB74D",
         meta_text_color="#8D6E63",
-        meta_font_size="12px",
+        meta_font_size="13px",
         source_text_color="#A1887F",
-        source_font_size="12px",
+        source_font_size="13px",
     ),
     "tech": StyleConfig(
         name="科技产品介绍色彩系",
         header_bg_color="#1565C0",  # 科技蓝
         header_text_color="#FFFFFF",
-        header_font_size="20px",
+        header_font_size="22px",
         card_bg_color="#E3F2FD",  # 淡蓝色背景
         card_border_color="#42A5F5",  # 蓝色边框
         card_text_color="#0D47A1",  # 深蓝色文字
+        body_font_size="17px",
+        bold_text_color="#1D4ED8",
         h2_h3_card_bg_color="rgba(66, 165, 245, 0.2)",  # 淡蓝色背景
         h2_h3_card_border_color="#42A5F5",  # 蓝色边框
         h2_title_line_color="#1565C0",  # 深蓝色横线
         h2_title_text_color="#0D47A1",  # 深蓝色标题
-        h2_title_font_size="18px",
+        h2_title_font_size="20px",
         h3_title_bg_color="#BBDEFB",  # 淡蓝色背景
         h3_title_border_color="#1565C0",  # 深蓝色左边框
         h3_title_text_color="#0D47A1",  # 深蓝色文字
-        h3_title_font_size="16px",
+        h3_title_font_size="17px",
         code_bg_color="#E1F5FE",  # 青色背景
         code_border_color="#26C6DA",
         meta_text_color="#546E7A",
-        meta_font_size="12px",
+        meta_font_size="13px",
         source_text_color="#78909C",
-        source_font_size="12px",
+        source_font_size="13px",
     ),
     "announcement": StyleConfig(
         name="重大事情告知色彩系",
         header_bg_color="#D32F2F",  # 警示红色
         header_text_color="#FFFFFF",
-        header_font_size="22px",
+        header_font_size="24px",
         card_bg_color="#FFF3E0",  # 淡橙色背景
         card_border_color="#FF5722",  # 深橙色边框
         card_text_color="#BF360C",  # 深橙色文字
+        body_font_size="17px",
+        bold_text_color="#1D4ED8",
         h2_h3_card_bg_color="rgba(255, 152, 0, 0.25)",  # 淡橙色背景
         h2_h3_card_border_color="#FF5722",  # 橙色边框
         h2_title_line_color="#D32F2F",  # 红色横线
         h2_title_text_color="#BF360C",  # 深橙色标题
-        h2_title_font_size="20px",
+        h2_title_font_size="22px",
         h3_title_bg_color="#FFE0B2",  # 淡橙色背景
         h3_title_border_color="#D32F2F",  # 红色左边框
         h3_title_text_color="#BF360C",  # 深橙色文字
-        h3_title_font_size="17px",
+        h3_title_font_size="18px",
         code_bg_color="#FFEBEE",  # 淡红色背景
         code_border_color="#EF5350",
         meta_text_color="#8D6E63",
-        meta_font_size="12px",
+        meta_font_size="13px",
         source_text_color="#A1887F",
-        source_font_size="12px",
+        source_font_size="13px",
     ),
 }
+
+# Keep the documented config value working even when callers omit --style.
+STYLES["viral-writer-wechat"] = replace(STYLES["academic_gray"], name="爆款公众号风格")
 
 
 @dataclass
@@ -2872,8 +2885,9 @@ class WeChatHTMLConverter:
         # 第二步：处理颜色语法（使用占位符方法，避免被转义）
         # 支持以下语法（推荐使用前两种，边界明确）：
         # 1. **文字**{color:#ff0000} - 加粗+颜色（推荐）
-        # 2. [文字]{color:#ff0000} - 仅颜色（推荐）
-        # 3. {color:#ff0000}文字{/color} - 标签风格的颜色
+        # 2. **文字**{red} / **文字**{deepblue} - 加粗+颜色别名（更简洁）
+        # 3. [文字]{color:#ff0000} - 仅颜色（推荐）
+        # 4. {color:#ff0000}文字{/color} - 标签风格的颜色
         
         color_placeholders = {}
         color_counter = 0
@@ -2908,6 +2922,23 @@ class WeChatHTMLConverter:
         
         # 允许 color: 后面有可选的空格
         text = re.sub(r'\*\*([^*]+)\*\*\{color:\s*([^}]+)\}', replace_bold_color, text)
+
+        # 处理加粗+颜色别名：**text**{red} / **text**{blue} / **text**{deepblue}
+        def replace_bold_color_alias(match):
+            content = match.group(1)
+            color = match.group(2)
+            color_style = self._validate_color(color)
+            if color_style:
+                html = f'<strong><span style="{color_style}">{content}</span></strong>'
+                return create_color_placeholder(html)
+            return f'**{content}**'
+
+        text = re.sub(
+            r'\*\*([^*]+)\*\*\{\s*(red|blue|deepblue|darkblue|红|红色|深蓝|深蓝色)\s*\}',
+            replace_bold_color_alias,
+            text,
+            flags=re.IGNORECASE,
+        )
         
         # 处理仅颜色：[text]{color:#ff0000} 或 [text]{color: #ff0000}
         def replace_color_only(match):
@@ -2983,7 +3014,14 @@ class WeChatHTMLConverter:
         
         # 第六步：处理其他 Markdown 语法
         # 处理粗体 **text**（双星号，不会与占位符冲突，且未被颜色处理匹配）
-        text = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', text)
+        text = re.sub(
+            r'\*\*([^*]+)\*\*',
+            lambda match: (
+                f'<strong style="color:{self.style_config.bold_text_color};">'
+                f'{match.group(1)}</strong>'
+            ),
+            text,
+        )
         
         # 处理斜体 *text* 或 _text_
         text = re.sub(r'(?<!\*)\*(?!\*)([^*]+)\*(?!\*)', r'<em>\1</em>', text)
@@ -3112,7 +3150,14 @@ class WeChatHTMLConverter:
         
         # 第五步：处理粗体 __text__（在占位符恢复后，避免匹配占位符）
         # 使用负向前瞻，确保不匹配已恢复的公式 HTML
-        text = re.sub(r'__(?!FORMULA\d+__)([^_]+)__', r'<strong>\1</strong>', text)
+        text = re.sub(
+            r'__(?!FORMULA\d+__)([^_]+)__',
+            lambda match: (
+                f'<strong style="color:{self.style_config.bold_text_color};">'
+                f'{match.group(1)}</strong>'
+            ),
+            text,
+        )
         
         # 第六步：处理行尾两个空格（Markdown 硬换行）
         # 将行尾的两个或更多空格转换为 <br>
@@ -3141,6 +3186,19 @@ class WeChatHTMLConverter:
         if re.match(r'^rgba?\([^)]+\)$', color):
             return f'color:{color};'
         
+        color_aliases = {
+            '红': '#c62828',
+            '红色': '#c62828',
+            'red': '#c62828',
+            '深蓝': '#1d4ed8',
+            '深蓝色': '#1d4ed8',
+            'deepblue': '#1d4ed8',
+            'darkblue': '#1d4ed8',
+        }
+        alias_color = color_aliases.get(color.lower(), color_aliases.get(color))
+        if alias_color:
+            return f'color:{alias_color};'
+
         # 支持常见颜色名称（英文）
         color_names = {
             'red', 'green', 'blue', 'yellow', 'orange', 'purple', 'pink',
@@ -3172,16 +3230,13 @@ class WeChatHTMLConverter:
             source: 来源信息（默认：gnss.ac.cn）
             permalink: 永久链接（可选）
         """
-        # 标题条
+        # 整篇正文使用统一浅黄底板，标题和正文连成一体
         header_html = (
-            f'<section style="margin:0;">'
-            f'<div style="background-color:{self.style_config.header_bg_color};'
-            f'color:{self.style_config.header_text_color};font-weight:bold;'
-            f'font-size:{self.style_config.header_font_size};line-height:1.6;'
-            f'padding:12px 14px;border-radius:10px 10px 0 0;margin:0;display:block;">'
+            f'<p style="margin:0 0 14px 0;'
+            f'color:{self.style_config.card_text_color};font-weight:bold;'
+            f'font-size:{self.style_config.header_font_size};line-height:1.6;">'
             f'{self._escape_html(title)}'
-            f'</div>'
-            f'</section>'
+            f'</p>'
         )
         
         # 标签字符串
@@ -3198,10 +3253,10 @@ class WeChatHTMLConverter:
         meta_html = ""
         if meta_parts:
             meta_html = (
-                f'<div style="color:{self.style_config.meta_text_color};'
-                f'font-size:{self.style_config.meta_font_size};margin:0 0 16px 0;">'
+                f'<p style="color:{self.style_config.meta_text_color};'
+                f'font-size:{self.style_config.meta_font_size};line-height:1.7;margin:0 0 16px 0;">'
                 f'{"　".join(meta_parts)}'
-                f'</div>'
+                f'</p>'
             )
         
         # 构建文尾信息（来源 + permalink）
@@ -3239,26 +3294,88 @@ class WeChatHTMLConverter:
             link_style = 'color:#576b95;text-decoration:underline;'
             footer_parts.append(f'<br><br><a href="{escaped_url}" style="{link_style}font-size:{self.style_config.source_font_size};">原文链接：{self._escape_html(permalink)}</a>')
         
-        footer_html = "".join(footer_parts)
-        
-        # 主卡片
-        card_style = (
-            f'border:1px solid {self.style_config.card_border_color};'
-            f'border-top:none;border-radius:0 0 10px 10px;'
+        footer_html = ""
+        if footer_parts:
+            footer_html = (
+                f'<p style="margin:18px 0 0 0;line-height:1.75;">'
+                f'{"".join(footer_parts)}'
+                f'</p>'
+            )
+        closing_notice_html = self._build_closing_notice_sections()
+        wrapper_style = (
             f'background-color:{self.style_config.card_bg_color};'
-            f'color:{self.style_config.card_text_color};line-height:1.9;'
-            f'padding:14px;margin:0;display:block;box-sizing:border-box;'
+            f'border:1px solid {self.style_config.card_border_color};'
+            f'border-radius:10px;'
+            f'padding:14px;'
+            f'box-sizing:border-box;'
+            f'color:{self.style_config.card_text_color};'
+            f'font-size:{self.style_config.body_font_size};'
+            f'line-height:1.9;'
         )
+        parts = [header_html]
+        if meta_html:
+            parts.append(meta_html)
+        if body:
+            parts.append(body)
+        if footer_html:
+            parts.append(footer_html)
+        if closing_notice_html:
+            parts.append(closing_notice_html)
+        return f'<div style="{wrapper_style}">' + "\n\n".join(parts) + "</div>"
 
-        card_html = (
-            f'<section style="{card_style}">'
-            f'{meta_html}'
-            f'<div style="margin:0;">{body}</div>'
-            f'<div style="margin-top:16px;">{footer_html}</div>'
-            f'</section>'
+    def _build_closing_notice_sections(self) -> str:
+        """生成正文之后、文末展示的互动提示模块"""
+        base_card_style = (
+            'margin:12px 0 0 0;'
+            'padding:8px 10px;'
+            'line-height:1.6;'
         )
-
-        return header_html + "\n\n" + card_html
+        badge_style = (
+            'display:inline-block;'
+            'padding:2px 7px;'
+            'border-radius:999px;'
+            'font-size:10px;'
+            'font-weight:bold;'
+            'letter-spacing:0.2px;'
+        )
+        heading_style = (
+            'font-size:14px;'
+            'font-weight:bold;'
+            f'color:{self.style_config.h3_title_text_color};'
+        )
+        body_text_style = (
+            'font-size:14px;'
+            'line-height:1.6;'
+        )
+        focus_inner_style = (
+            'border-left:4px solid #D97706;'
+            'background-color:#F9EDCD;'
+            'border:1px solid rgba(217, 119, 6, 0.20);'
+        )
+        reader_inner_style = (
+            'border-left:4px solid #0F766E;'
+            'background-color:#DFF2EC;'
+            'border:1px solid rgba(15, 118, 110, 0.20);'
+        )
+        focus_section = (
+            f'<p style="{base_card_style}{focus_inner_style}">'
+            f'<span style="{badge_style}background:rgba(217, 119, 6, 0.14);color:#B45309;">互动提示</span>'
+            f'<span style="{heading_style}"> 关注支持：</span>'
+            f'<span style="{body_text_style}">'
+            '如果这篇文章对你有启发，欢迎点亮赞与在看。'
+            '</span>'
+            '</p>'
+        )
+        reader_section = (
+            f'<p style="{base_card_style}{reader_inner_style}">'
+            f'<span style="{badge_style}background:rgba(15, 118, 110, 0.12);color:#0F766E;">读者征稿</span>'
+            f'<span style="{heading_style}"> 读者来稿：</span>'
+            f'<span style="{body_text_style}">'
+            '如果你有不同判断，欢迎通过公众号私信来稿。'
+            '</span>'
+            '</p>'
+        )
+        return focus_section + "\n\n" + reader_section
     
     @staticmethod
     def _escape_html(text: str) -> str:
@@ -3277,9 +3394,9 @@ def main():
     parser = argparse.ArgumentParser(description="Markdown 转微信公众号 HTML 转换器")
     parser.add_argument("input", help="输入的 Markdown 文件路径")
     parser.add_argument("-o", "--output", help="输出的 HTML 文件路径（默认：输入文件名.html）")
-    parser.add_argument("-s", "--style", default="academic_gray", 
+    parser.add_argument("-s", "--style", default=None,
                        choices=list(STYLES.keys()),
-                       help="风格选择（默认：academic_gray）")
+                       help="风格选择（默认读取 camera_ready.style）")
     parser.add_argument("--source", help="来源信息（可选，如果提供则覆盖 Front Matter tags 中的来源，默认：gnss.ac.cn）")
     
     args = parser.parse_args()
@@ -3292,8 +3409,12 @@ def main():
         output_path = input_path.with_suffix(".html")
     
     # 转换
+    from md2wechat_config import get_default_render_style, load_md2wechat_config
+
     base_dir = str(Path(args.input).parent)
-    converter = WeChatHTMLConverter(style=args.style, base_dir=base_dir)
+    runtime_config = load_md2wechat_config()
+    resolved_style = args.style or get_default_render_style(runtime_config)
+    converter = WeChatHTMLConverter(style=resolved_style, base_dir=base_dir)
     html_content = converter.convert(args.input, source=args.source)
     
     # 写入文件
